@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFG Knowledge Hub</title>
+    
+    <!-- 1. Favicon (Logo de la Pestaña) -->
+    <link rel="icon" type="image/png" href="img/logo_hub.png" 
+          onerror="this.onerror=null; this.src='https://placehold.co/32x32/004a99/ffffff?text=HUB';">
+    
+    <!-- 2. Tailwind CSS (Librería de Estilos) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 3. Estilos CSS Personalizadops (Fuente y Spinner) -->
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- Configuración de Tailwind (para que coincida con los colores UFG) -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        // Colores institucionales UFG
+                        'ufg-blue': {
+                            DEFAULT: '#004a99', // Azul principal
+                            'dark': '#003366',  // Azul oscuro
+                            'light': '#e6f0ff', // Azul claro (para fondos)
+                        },
+                        'ufg-orange': {
+                            DEFAULT: '#f58220', // Naranja principal
+                            'dark': '#d96000',  // Naranja oscuro
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-100 h-full">
+
+    <!-- 
+        Este es el contenedor donde nuestra aplicación JavaScript ('app.js')
+        dibujará las pantallas (Login, Registro, Dashboard, etc.).
+    -->
+    <div id="app-root" class="h-full">
+        
+        <!-- 
+            Spinner de Carga Inicial
+            js/app.js reemplazará esto con la pantalla de Login o el Dashboard.
+            Los estilos están en css/style.css
+        -->
+        <div class="initial-load-spinner">
+            <svg class="spinner" viewBox="0 0 50 50">
+                <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
+            </svg>
+        </div>
+
+    </div>
+
+    <!-- 
+        Carga de Módulos de JavaScript
+        Usamos 'type="module"' para poder usar 'import' y 'export'.
+        El orden es importante. app.js es el último porque depende de los otros.
+    -->
+    <script type="module" src="js/config.js"></script>
+    <script type="module" src="js/api.js"></script>
+    <script type="module" src="js/ai.js"></script> <!-- Cliente del asistente de IA -->
+    <script type="module" src="js/ui.js"></script>
+    <script type="module" src="js/app.js"></script> <!-- Este es el último y el "cerebro" -->
+
+</body>
+</html>

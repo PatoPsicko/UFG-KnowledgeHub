@@ -1,0 +1,353 @@
+/* 1. Importar la fuente 'Inter' de Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* 2. Aplicar la fuente al cuerpo */
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+/* 3. Estilos para el spinner de carga inicial */
+.initial-load-spinner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.spinner {
+    animation: rotate 2s linear infinite;
+    width: 60px;
+    height: 60px;
+}
+
+.path {
+    stroke: #ffffff;
+    stroke-linecap: round;
+    animation: dash 1.5s ease-in-out infinite;
+}
+
+/* Animaciones del spinner */
+@keyframes rotate {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes dash {
+    0% {
+        stroke-dasharray: 1, 150;
+        stroke-dashoffset: 0;
+    }
+    50% {
+        stroke-dasharray: 90, 150;
+        stroke-dashoffset: -35;
+    }
+    100% {
+        stroke-dasharray: 90, 150;
+        stroke-dashoffset: -124;
+    }
+}
+
+/* 4. Nuevas animaciones para la aplicación */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes modal-in {
+    from {
+        opacity: 0;
+        transform: scale(0.8) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+    }
+}
+
+/* Clases de utilidad para las animaciones */
+.animate-fade-in {
+    animation: fade-in 0.6s ease-out;
+}
+
+.animate-modal-in {
+    animation: modal-in 0.3s ease-out;
+}
+
+.animate-slide-in {
+    animation: slide-in 0.4s ease-out;
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Efectos de hover mejorados */
+.hover-lift {
+    transition: all 0.3s ease;
+}
+
+.hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Scrollbar personalizado */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(to bottom, #3b82f6, #1d4ed8);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(to bottom, #2563eb, #1e40af);
+}
+
+/* Efectos de glassmorphism */
+.glass-effect {
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* Mejoras para inputs con iconos */
+.input-with-icon {
+    position: relative;
+}
+
+.input-with-icon input {
+    padding-left: 2.5rem;
+}
+
+.input-with-icon .icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #6b7280;
+}
+
+/* Transiciones suaves para todos los elementos interactivos */
+button, input, select, textarea, a {
+    transition: all 0.3s ease;
+}
+
+/* Efecto de onda en botones */
+.btn-ripple {
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-ripple:after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    border-radius: 100%;
+    transform: scale(1, 1) translate(-50%);
+    transform-origin: 50% 50%;
+}
+
+.btn-ripple:focus:not(:active)::after {
+    animation: ripple 1s ease-out;
+}
+
+@keyframes ripple {
+    0% {
+        transform: scale(0, 0);
+        opacity: 0.5;
+    }
+    100% {
+        transform: scale(20, 20);
+        opacity: 0;
+    }
+}
+/* Notificaciones de la aplicación */
+.app-notification {
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+}
+
+.app-notification.opacity-100 {
+    opacity: 1;
+}
+
+.app-notification.translate-x-0 {
+    transform: translateX(0);
+}
+
+.app-notification.translate-x-full {
+    transform: translateX(100%);
+}
+/* Reset para imágenes del logo */
+iimg {
+    max-width: none !important; /* Evita que Tailwind limite el ancho */
+}
+
+/* Clase específica para logos en el header */
+.header-logo {
+    object-fit: contain !important;
+    height: 56px !important;
+    width: auto !important;
+    max-height: 56px !important;
+}
+
+/* Clase específica para logos en login/register - TAMAÑO ADECUADO */
+.login-logo {
+    object-fit: contain !important;
+    height: 64px !important; /* Reducido de 96px a 64px */
+    width: auto !important;
+    max-width: 200px !important; /* Máximo ancho permitido */
+    max-height: 64px !important;
+}
+
+/* Para el header específicamente */
+#app-header img {
+    height: 56px !important;
+    width: auto !important;
+    object-fit: contain !important;
+    max-width: none !important;
+}
+
+/* Para login/register específicamente - TAMAÑO CORREGIDO */
+.login-screen img,
+.register-screen img {
+    height: 64px !important; /* Reducido */
+    width: auto !important;
+    object-fit: contain !important;
+    max-width: 200px !important;
+}
+
+/* Asegurar que object-contain funcione correctamente */
+.object-contain {
+    object-fit: contain !important;
+}
+
+/* Responsive para móviles */
+@media (max-width: 768px) {
+    .header-logo {
+        height: 48px !important;
+        max-height: 48px !important;
+    }
+    
+    .login-logo {
+        height: 56px !important; /* Aún más pequeño en móviles */
+        max-height: 56px !important;
+        max-width: 180px !important;
+    }
+}
+
+/* Efectos hover específicos para logos */
+.header-logo:hover,
+.login-logo:hover {
+    filter: brightness(1.1);
+    transition: filter 0.3s ease;
+}
+
+
+/* Responsive para móviles */
+@media (max-width: 768px) {
+    .header-logo {
+        height: 48px !important;
+        max-height: 48px !important;
+    }
+    
+    .login-logo {
+        height: 80px !important;
+        max-height: 80px !important;
+        max-width: 240px !important;
+    }
+}
+
+/* Efectos hover específicos para logos */
+.header-logo:hover,
+.login-logo:hover {
+    filter: brightness(1.1);
+    transition: filter 0.3s ease;
+}
+
+/* Asegurar que las imágenes de placeholder también se vean bien */
+img[src*="placehold"] {
+    object-fit: contain !important;
+}
+
+/* Fix para cuando las imágenes fallan en cargar */
+img:not([src]):not([srcset]) {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+}
+
+/* Animación específica para logos */
+@keyframes logo-float {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-5px);
+    }
+}
+
+.logo-float {
+    animation: logo-float 3s ease-in-out infinite;
+}
+
+/* Efecto de brillo sutil en logos */
+.logo-glow {
+    filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3));
+}
+
+/* Mejoras de rendimiento para animaciones */
+@media (prefers-reduced-motion: reduce) {
+    .animate-fade-in,
+    .animate-modal-in,
+    .animate-slide-in,
+    .animate-pulse-glow,
+    .logo-float {
+        animation: none;
+    }
+}

@@ -1,0 +1,38 @@
+# --- Entornos virtuales ---
+# El .venv del proyecto venía con rutas absolutas de otra máquina
+# (C:\Users\dn\Desktop\...), así que no funcionaba al clonarlo. Cada quien debe
+# crear el suyo con: python -m venv .venv
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Configuración y secretos ---
+# .env guarda la JWT_SECRET_KEY: si se sube al repositorio, cualquiera puede
+# firmar tokens válidos y entrar como cualquier usuario.
+.env
+instance/
+!instance/.gitkeep
+
+# --- Datos de usuarios ---
+# Los archivos que suben los estudiantes no pertenecen al código fuente y
+# pueden contener datos personales.
+uploads/*
+!uploads/.gitkeep
+
+# --- Sistema operativo / editores ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# --- Salidas de análisis ---
+graphify-out/
