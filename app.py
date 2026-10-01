@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -22,6 +23,10 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+# Se importa después de load_dotenv() porque lee OLLAMA_URL, OLLAMA_MODEL...
+# al cargarse.
+import ai_service
 
 # --- 1. Configuración Inicial ---
 app = Flask(__name__, instance_relative_config=True)
@@ -335,6 +340,24 @@ class Notification(db.Model):
     message = db.Column(db.Text, nullable=False)
     related_id = db.Column(db.Integer)  # ID del recurso relacionado
     read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+class AIConversation(db.Model):
+    """Conversación con el asistente de IA. Pertenece a un único usuario."""
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    messages = db.relationship('AIMessage', backref='conversation', lazy=True,
+                               cascade='all, delete-orphan', order_by='AIMessage.id')
+
+class AIMessage(db.Model):
+    """Un turno de la conversación. `sources` guarda en JSON las fuentes citadas."""
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.String(36), db.ForeignKey('ai_conversation.id'), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # 'user' o 'assistant'
+    content = db.Column(db.Text, nullable=False)
+    sources = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
 # --- 4. Rutas de la API EXISTENTES ---
@@ -1735,6 +1758,178 @@ def get_profile_picture(filename):
         return jsonify({'message': 'Archivo no encontrado'}), 404
 
 
+# --- Asistente de IA (RAG con Ollama) ---
+# La lógica de búsqueda y la conexión con el modelo están en ai_service.py.
+# Aquí sólo se decide QUÉ documentos puede consultar cada usuario y se guardan
+# las conversaciones.
+
+AI_HISTORY_TURNS = 6          # mensajes previos que se envían al modelo
+AI_MAX_QUESTION_LENGTH = 2000
+
+
+def collect_ai_documents(user_id):
+    """Documentos que `user_id` tiene permiso de ver, listos para buscar.
+
+    El filtro por permisos se aplica AQUÍ, antes de la búsqueda y antes de
+    construir el prompt. Si se filtrara después, el modelo ya habría leído
+    la nota privada de otro estudiante y podría citarla en su respuesta.
+
+    - Biblioteca: todos los recursos públicos.
+    - Anotaciones: sólo las del propio usuario (notas y archivos).
+    - Grupos: sólo los recursos de grupos a los que pertenece.
+    """
+    upload_dir = app.config['UPLOAD_FOLDER']
+    documentos = []
+
+    for r in Resource.query.all():
+        metadatos = (f'Título: {r.title}. Autor: {r.author}. '
+                     f'Categoría: {r.category or "-"}. Etiquetas: {r.tags or "-"}.')
+        contenido = ai_service.extract_text(
+            os.path.join(upload_dir, secure_filename(r.filename or '')))
+        documentos.append(ai_service.Documento(
+            kind='public', id=r.id, title=r.title, origin='Biblioteca',
+            text=f'{metadatos}\n{contenido}'))
+
+    for p in PrivateResource.query.filter_by(owner_id=user_id).all():
+        if p.type == 'file':
+            contenido = ai_service.extract_text(
+                os.path.join(upload_dir, 'private', secure_filename(p.filename or '')))
+            kind = 'private_file'
+        else:
+            contenido = p.content or ''
+            kind = 'private_note'
+        documentos.append(ai_service.Documento(
+            kind=kind, id=p.id, title=p.title, origin='Tus anotaciones',
+            text=f'Título: {p.title}.\n{contenido}'))
+
+    group_ids = [m.group_id for m in GroupMember.query.filter_by(user_id=user_id).all()]
+    if group_ids:
+        nombres = {g.id: g.name for g in Group.query.filter(Group.id.in_(group_ids)).all()}
+        for g in GroupResource.query.filter(GroupResource.group_id.in_(group_ids)).all():
+            contenido = ai_service.extract_text(os.path.join(
+                upload_dir, 'groups', str(g.group_id), secure_filename(g.filename or '')))
+            documentos.append(ai_service.Documento(
+                kind='group', id=g.id, title=g.title,
+                origin=f'Grupo {nombres.get(g.group_id, "")}'.strip(),
+                text=f'Título: {g.title}. Descripción: {g.description or "-"}.\n{contenido}'))
+
+    return documentos
+
+
+def count_ai_documents(user_id):
+    """Cuántos documentos puede consultar el usuario, sin leer los archivos."""
+    group_ids = [m.group_id for m in GroupMember.query.filter_by(user_id=user_id).all()]
+    total = Resource.query.count() + PrivateResource.query.filter_by(owner_id=user_id).count()
+    if group_ids:
+        total += GroupResource.query.filter(GroupResource.group_id.in_(group_ids)).count()
+    return total
+
+
+@app.route('/api/ai/status', methods=['GET'])
+@jwt_required()
+def ai_status():
+    try:
+        user_id = get_current_user_id()
+        disponible, detalle = ai_service.model_status()
+        if not disponible:
+            app.logger.warning('Asistente de IA no disponible: %s', detalle)
+
+        payload = {
+            'available': disponible,
+            'model': ai_service.OLLAMA_MODEL,
+            'indexed_documents': count_ai_documents(user_id),
+        }
+        # El detalle incluye la URL interna de Ollama: sólo se expone en debug.
+        if not disponible and DEBUG_MODE:
+            payload['detail'] = detalle
+        return jsonify(payload), 200
+    except Exception as e:
+        return error_response('Error al consultar el asistente', 500, e)
+
+
+@app.route('/api/ai/chat', methods=['POST'])
+@jwt_required()
+def ai_chat():
+    try:
+        user_id = get_current_user_id()
+        data = request.get_json(silent=True) or {}
+
+        question = (data.get('question') or '').strip()
+        if not question:
+            return jsonify({'message': 'Escribe una pregunta'}), 400
+        if len(question) > AI_MAX_QUESTION_LENGTH:
+            return jsonify({'message': f'La pregunta no puede superar los {AI_MAX_QUESTION_LENGTH} caracteres'}), 400
+
+        # Una conversación ajena o inexistente no da error: se empieza una
+        # nueva. (Un 404 aquí lo interpretaría el frontend como "asistente no
+        # implementado".)
+        conversation = None
+        conversation_id = data.get('conversation_id')
+        if conversation_id:
+            conversation = db.session.get(AIConversation, str(conversation_id))
+            if conversation and conversation.user_id != user_id:
+                conversation = None
+
+        historial = []
+        if conversation:
+            previos = conversation.messages[-AI_HISTORY_TURNS:]
+            historial = [(m.role, m.content) for m in previos]
+
+        fragmentos = ai_service.search(collect_ai_documents(user_id), question)
+        try:
+            respuesta = ai_service.answer(question, fragmentos, historial)
+        except ai_service.OllamaError as exc:
+            return error_response('El modelo de IA no está respondiendo en este momento', 503, exc)
+
+        sources = [{
+            'resource_id': f.documento.id,
+            'type': f.documento.kind,
+            'title': f.documento.title,
+            'origin': f.documento.origin,
+            'snippet': ai_service.snippet(f.texto),
+            'score': f.score,
+        } for f in fragmentos]
+
+        if not conversation:
+            conversation = AIConversation(user_id=user_id)
+            db.session.add(conversation)
+            db.session.flush()
+
+        db.session.add(AIMessage(conversation_id=conversation.id, role='user', content=question))
+        db.session.add(AIMessage(conversation_id=conversation.id, role='assistant',
+                                 content=respuesta, sources=json.dumps(sources, ensure_ascii=False)))
+        db.session.commit()
+
+        return jsonify({
+            'answer': respuesta,
+            'conversation_id': conversation.id,
+            'sources': sources,
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return error_response('Error al procesar la pregunta', 500, e)
+
+
+@app.route('/api/ai/history', methods=['GET'])
+@jwt_required()
+def ai_history():
+    try:
+        user_id = get_current_user_id()
+        conversation_id = request.args.get('conversation_id', '')
+        conversation = db.session.get(AIConversation, conversation_id) if conversation_id else None
+        if not conversation or conversation.user_id != user_id:
+            return jsonify({'message': 'Conversación no encontrada'}), 404
+
+        return jsonify({'messages': [{
+            'role': m.role,
+            'content': m.content,
+            'sources': json.loads(m.sources) if m.sources else [],
+            'created_at': m.created_at.isoformat() if m.created_at else None,
+        } for m in conversation.messages]}), 200
+    except Exception as e:
+        return error_response('Error al obtener el historial', 500, e)
+
+
 # Ruta de salud
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -1834,13 +2029,20 @@ if __name__ == '__main__':
     # faltaban en bases de datos antiguas jamás se añadían.
     check_and_update_db()
 
+    # En local se escucha sólo en 127.0.0.1. En un servidor se puede cambiar con
+    # APP_HOST/APP_PORT, aunque para producción conviene usar wsgi.py con
+    # waitress o gunicorn (ver docs/ASISTENTE_IA.md).
+    host = os.environ.get('APP_HOST', '').strip() or '127.0.0.1'
+    port = int(os.environ.get('APP_PORT') or 5001)
+
     print("=" * 52)
     print("  UFG Knowledge Hub")
-    print("  Abre la app en:  http://127.0.0.1:5001")
+    print(f"  Abre la app en:  http://{host}:{port}")
     print(f"  Modo debug:      {'SÍ' if DEBUG_MODE else 'no'}")
+    print(f"  Asistente IA:    {ai_service.OLLAMA_MODEL} en {ai_service.OLLAMA_URL}")
     print("=" * 52)
 
     # debug estaba fijado a True. El depurador de Werkzeug permite ejecutar
     # código desde el navegador ante cualquier error, así que ahora sólo se
     # activa si se pide con FLASK_DEBUG=1.
-    app.run(debug=DEBUG_MODE, port=5001, host='127.0.0.1')
+    app.run(debug=DEBUG_MODE, port=port, host=host)

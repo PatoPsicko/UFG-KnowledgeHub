@@ -49,16 +49,20 @@ en el mismo puerto, así que ya no hace falta Live Server ni configurar CORS.
 | `CORS_ORIGINS` | Orígenes autorizados, separados por comas. Sólo hace falta si sirves el frontend aparte. |
 | `DATABASE_PATH` | Ruta alternativa de la base SQLite. Vacío = `instance/database.db`. |
 | `FLASK_DEBUG` | `1` activa el depurador de Werkzeug. **Déjalo en 0** salvo que estés depurando. |
+| `APP_HOST` / `APP_PORT` | Dirección y puerto de `python app.py`. Vacío = `127.0.0.1:5001`. |
+| `OLLAMA_URL`, `OLLAMA_MODEL`... | Configuración del asistente de IA. Ver `docs/ASISTENTE_IA.md`. |
 
 ## Estructura
 
 ```
 app.py              API Flask y modelos de datos
+ai_service.py       Asistente de IA: búsqueda en documentos + Ollama
+wsgi.py             Entrada para servidores de producción (waitress/gunicorn)
 init_database.py    Utilidad de base de datos
 index.html          Página única que carga la aplicación
 js/config.js        URL de la API (detecta si la sirve Flask)
 js/api.js           Cliente HTTP
-js/ai.js            Cliente del asistente de IA (pendiente de backend)
+js/ai.js            Cliente del asistente de IA
 js/ui.js            Plantillas HTML
 js/app.js           Estado, vistas y eventos
 css/style.css       Estilos propios
@@ -67,30 +71,32 @@ uploads/            Archivos subidos (fuera del control de versiones)
 instance/           Base de datos y clave JWT (fuera del control de versiones)
 ```
 
-## Asistente de IA (en preparación)
+## Asistente de IA
 
-La interfaz del asistente ya está integrada: botón flotante en la esquina
-inferior derecha, panel de conversación y presentación de fuentes citadas.
+> **Hoy funciona en local** (Flask y Ollama en la misma PC). El proyecto está
+> preparado para desplegarse en un servidor cambiando sólo el `.env`.
 
-**El backend todavía no existe.** Mientras `/api/ai/*` devuelva 404, el widget
-muestra un aviso y deja el campo de escritura deshabilitado, en lugar de fallar.
+Botón flotante en la esquina inferior derecha. Responde preguntas sobre los
+documentos de la plataforma usando **Ollama + Llama 3.1 8B** y cita las fuentes
+de cada respuesta. Sólo consulta lo que el usuario tiene permiso de ver: la
+biblioteca pública, sus propias anotaciones y los recursos de sus grupos.
 
-Para activarlo hay que implementar en `app.py` los tres endpoints descritos en la
-cabecera de `js/ai.js`:
+```powershell
+winget install Ollama.Ollama
+ollama pull llama3.1:8b
+```
+
+Con Ollama en marcha, `python app.py` lo detecta solo. Si no está disponible, el
+widget lo avisa y el resto de la aplicación funciona igual.
 
 | Endpoint | Función |
 |---|---|
 | `POST /api/ai/chat` | Recibe la pregunta, devuelve respuesta y fuentes |
 | `GET /api/ai/status` | Indica si el modelo está disponible |
-| `GET /api/ai/history` | Historial de una conversación (opcional) |
+| `GET /api/ai/history` | Historial de una conversación |
 
-El plan completo —arquitectura RAG, instalación de Ollama, requisitos de
-hardware y fases— está en `docs/UFG_Knowledge_Hub_Documentacion.docx`.
-
-> **Importante al implementarlo:** el índice contendrá recursos públicos,
-> privados y de grupo. El filtro por permisos debe aplicarse **en la búsqueda**,
-> antes de construir el prompt. Si se filtra después, el asistente puede acabar
-> citando la nota privada de otro estudiante.
+Arquitectura, configuración, pruebas de permisos y **guía de paso a servidor**:
+[`docs/ASISTENTE_IA.md`](docs/ASISTENTE_IA.md).
 
 ## Notas de seguridad
 

@@ -22,3 +22,12 @@ SQLAlchemy==2.0.54
 
 # Carga de variables desde el archivo .env (JWT_SECRET_KEY, CORS_ORIGINS...).
 python-dotenv==1.2.3
+
+# Asistente de IA: extracción de texto de PDF y Word para la búsqueda (RAG).
+# La conexión con Ollama usa sólo la biblioteca estándar.
+pypdf==6.19.0
+python-docx==1.2.0
+
+# Servidor de producción (sólo hace falta al desplegar; ver wsgi.py).
+#   Windows: pip install waitress
+#   Linux:   pip install gunicorn

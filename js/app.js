@@ -683,9 +683,9 @@ const App = {
         },
 
         // --- Asistente de IA -------------------------------------------------
-        // La interfaz está completa; el backend todavía no expone /api/ai/*.
-        // Mientras tanto ai.js devuelve un estado "no disponible" y el panel lo
-        // muestra como aviso, sin romper nada.
+        // El backend responde vía /api/ai/* (Ollama + búsqueda en documentos).
+        // Si Ollama no está en marcha, ai.js devuelve un estado "no disponible"
+        // y el panel lo muestra como aviso, sin romper nada.
 
         /** Abre o cierra el panel del asistente. */
         async toggleAiPanel(forzarAbierto = null) {

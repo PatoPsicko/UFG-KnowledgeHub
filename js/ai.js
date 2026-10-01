@@ -1,23 +1,21 @@
 /**
  * Cliente del asistente de IA.
  *
- * ESTADO ACTUAL: el backend todavía NO expone estos endpoints. Este módulo está
- * escrito contra el contrato que se implementará más adelante (ver README y el
- * documento de trabajo futuro). Mientras el backend no exista, `enviarPregunta`
- * detecta el 404 y devuelve un estado "no disponible" en lugar de romper la
- * interfaz: el widget se ve, se puede abrir y avisa de que el asistente aún no
- * está conectado.
+ * El backend (app.py + ai_service.py) implementa estos endpoints con Ollama y
+ * búsqueda en los documentos de la plataforma; ver docs/ASISTENTE_IA.md.
+ * Si el servidor no los expone (404) o Ollama está apagado (503), este módulo
+ * devuelve un estado "no disponible" en lugar de romper la interfaz.
  *
- * CONTRATO QUE DEBERÁ IMPLEMENTAR EL BACKEND
- * ------------------------------------------
+ * CONTRATO CON EL BACKEND
+ * -----------------------
  * POST /api/ai/chat           (requiere JWT)
  *   Petición:  { "question": "texto", "conversation_id": "uuid|null" }
  *   Respuesta: {
  *     "answer": "texto de la respuesta",
  *     "conversation_id": "uuid",
  *     "sources": [
- *       { "resource_id": 12, "title": "Apuntes de Cálculo",
- *         "snippet": "fragmento citado", "score": 0.82 }
+ *       { "resource_id": 12, "type": "public", "title": "Apuntes de Cálculo",
+ *         "origin": "Biblioteca", "snippet": "fragmento citado", "score": 0.82 }
  *     ]
  *   }
  *

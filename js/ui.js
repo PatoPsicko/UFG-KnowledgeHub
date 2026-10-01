@@ -302,8 +302,8 @@ dashboardScreen(userName, viewHtml) {
 
     <!--
         Asistente de IA. El panel se rellena desde templates.aiPanel() al abrirlo.
-        El backend todavía no expone /api/ai/*, así que el widget avisa de que no
-        está conectado en lugar de fallar (ver js/ai.js).
+        Si el modelo no está disponible en el servidor, el widget lo avisa en
+        lugar de fallar (ver js/ai.js).
     -->
     <button id="ai-toggle-button"
             class="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-ufg-blue text-white shadow-2xl hover:bg-ufg-blue-dark hover:scale-110 transition-all duration-300 flex items-center justify-center"
@@ -441,6 +441,7 @@ dashboardScreen(userName, viewHtml) {
                 ${fuentes.map(f => /*html*/`
                     <div class="text-xs text-gray-600">
                         <span class="font-medium">${esc(f.title || 'Documento')}</span>
+                        ${f.origin ? `<span class="text-[10px] text-gray-400"> (${esc(f.origin)})</span>` : ''}
                         ${f.snippet ? `<span class="text-gray-500"> — ${esc(f.snippet)}</span>` : ''}
                     </div>
                 `).join('')}
@@ -450,7 +451,7 @@ dashboardScreen(userName, viewHtml) {
         return /*html*/`
             <div class="flex justify-start">
                 <div class="bg-gray-100 text-gray-800 rounded-2xl rounded-bl-sm px-3.5 py-2 max-w-[90%] text-sm break-words">
-                    ${esc(texto)}
+                    <div class="whitespace-pre-line">${esc(texto)}</div>
                     ${citas}
                 </div>
             </div>
