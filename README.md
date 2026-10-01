@@ -56,7 +56,8 @@ en el mismo puerto, así que ya no hace falta Live Server ni configurar CORS.
 
 ```
 app.py              API Flask y modelos de datos
-ai_service.py       Asistente de IA: búsqueda en documentos + Ollama
+ai_service.py       Asistente de IA: conexión con Ollama, prompt y control de carga
+ai_index.py         Asistente de IA: índice híbrido (ChromaDB + FTS5) y búsqueda
 wsgi.py             Entrada para servidores de producción (waitress/gunicorn)
 init_database.py    Utilidad de base de datos
 index.html          Página única que carga la aplicación
@@ -76,24 +77,32 @@ instance/           Base de datos y clave JWT (fuera del control de versiones)
 > **Hoy funciona en local** (Flask y Ollama en la misma PC). El proyecto está
 > preparado para desplegarse en un servidor cambiando sólo el `.env`.
 
-Botón flotante en la esquina inferior derecha. Responde preguntas sobre los
-documentos de la plataforma usando **Ollama + Llama 3.1 8B** y cita las fuentes
-de cada respuesta. Sólo consulta lo que el usuario tiene permiso de ver: la
-biblioteca pública, sus propias anotaciones y los recursos de sus grupos.
+Botón flotante en la esquina inferior derecha. Responde preguntas sobre el
+**contenido** de los documentos usando **Ollama + Llama 3.1 8B**, con búsqueda
+híbrida por significado y por palabras: vectores con `nomic-embed-text` en
+**ChromaDB (HNSW)** y **BM25 con SQLite FTS5**, combinados por fusión de rango
+recíproco. Cita las fuentes de cada respuesta, responde en streaming y sólo
+consulta lo que el usuario tiene permiso de ver: la biblioteca pública, sus
+propias anotaciones y los recursos de sus grupos.
 
 ```powershell
 winget install Ollama.Ollama
 ollama pull llama3.1:8b
+ollama pull nomic-embed-text
 ```
 
-Con Ollama en marcha, `python app.py` lo detecta solo. Si no está disponible, el
-widget lo avisa y el resto de la aplicación funciona igual.
+Con Ollama en marcha, `python app.py` lo detecta solo e indexa los documentos en
+segundo plano. Si Ollama no está disponible, el widget lo avisa y el resto de la
+aplicación funciona igual.
 
 | Endpoint | Función |
 |---|---|
 | `POST /api/ai/chat` | Recibe la pregunta, devuelve respuesta y fuentes |
-| `GET /api/ai/status` | Indica si el modelo está disponible |
+| `POST /api/ai/chat/stream` | Lo mismo, con la respuesta llegando conforme se genera |
+| `GET /api/ai/status` | Indica si el modelo está disponible y cuántos documentos hay |
 | `GET /api/ai/history` | Historial de una conversación |
+
+Herramienta de consola: `python ai_index.py --stats | --sync | --rebuild | --query "..." --user N`.
 
 Arquitectura, configuración, pruebas de permisos y **guía de paso a servidor**:
 [`docs/ASISTENTE_IA.md`](docs/ASISTENTE_IA.md).

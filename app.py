@@ -1,8 +1,9 @@
 import json
 import os
 import re
+import time
 import uuid
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, Response, request, jsonify, send_from_directory, stream_with_context
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
@@ -24,9 +25,10 @@ try:
 except ImportError:
     pass
 
-# Se importa después de load_dotenv() porque lee OLLAMA_URL, OLLAMA_MODEL...
+# Se importan después de load_dotenv() porque leen OLLAMA_URL, OLLAMA_MODEL...
 # al cargarse.
 import ai_service
+import ai_index
 
 # --- 1. Configuración Inicial ---
 app = Flask(__name__, instance_relative_config=True)
@@ -525,6 +527,7 @@ def create_resource():
 
         db.session.add(new_resource)
         db.session.commit()
+        ai_reindex(ai_spec_resource(new_resource))
 
         return jsonify({'message': 'Recurso creado exitosamente', 'id': new_resource.id}), 201
 
@@ -561,6 +564,7 @@ def update_resource(id):
             delete_upload(old_filename)
 
         db.session.commit()
+        ai_reindex(ai_spec_resource(resource))
         return jsonify({'message': 'Recurso actualizado exitosamente'}), 200
 
     except Exception as e:
@@ -587,6 +591,7 @@ def delete_resource(id):
         # El fichero se borra tras confirmar el borrado en base de datos: si el
         # commit fallara, el recurso seguiría existiendo pero sin archivo.
         delete_upload(filename)
+        ai_unindex('public', id)
 
         return jsonify({'message': 'Recurso eliminado exitosamente'}), 200
 
@@ -1197,6 +1202,7 @@ def upload_group_resource(group_id):
 
         db.session.add(new_resource)
         db.session.commit()
+        ai_reindex(ai_spec_group_resource(new_resource))
 
         return jsonify({'message': 'Recurso subido exitosamente', 'id': new_resource.id}), 201
 
@@ -1306,6 +1312,7 @@ def create_private_resource():
 
         db.session.add(new_resource)
         db.session.commit()
+        ai_reindex(ai_spec_private(new_resource))
 
         return jsonify({'message': 'Recurso privado creado exitosamente', 'id': new_resource.id}), 201
     except Exception as e:
@@ -1332,8 +1339,9 @@ def update_private_resource(id):
         resource.title = data.get('title', resource.title)
         resource.content = data.get('content', resource.content)
         resource.updated_at = db.func.now()
-                
+
         db.session.commit()
+        ai_reindex(ai_spec_private(resource))
         return jsonify({'message': 'Recurso actualizado exitosamente'}), 200
         
     except Exception as e:
@@ -1354,11 +1362,13 @@ def delete_private_resource(id):
             return jsonify({'message': 'No autorizado para eliminar este recurso'}), 403
 
         filename = resource.filename if resource.type == 'file' else None
+        kind = 'private_file' if resource.type == 'file' else 'private_note'
 
         db.session.delete(resource)
         db.session.commit()
 
         delete_upload(filename, subfolder='private')
+        ai_unindex(kind, id)
 
         return jsonify({'message': 'Recurso eliminado exitosamente'}), 200
 
@@ -1759,70 +1769,183 @@ def get_profile_picture(filename):
 
 
 # --- Asistente de IA (RAG con Ollama) ---
-# La lógica de búsqueda y la conexión con el modelo están en ai_service.py.
-# Aquí sólo se decide QUÉ documentos puede consultar cada usuario y se guardan
-# las conversaciones.
+# Diseño completo en docs/ASISTENTE_IA.md. Reparto de responsabilidades:
+#   ai_service.py  conexión con Ollama (respuesta, streaming, embeddings) y prompt
+#   ai_index.py    índice híbrido: ChromaDB (vectores/HNSW) + SQLite FTS5 (BM25)
+#   app.py         QUÉ documentos existen, QUIÉN puede ver cada uno y las rutas
 
 AI_HISTORY_TURNS = 6          # mensajes previos que se envían al modelo
 AI_MAX_QUESTION_LENGTH = 2000
 
 
-def collect_ai_documents(user_id):
-    """Documentos que `user_id` tiene permiso de ver, listos para buscar.
+def ai_index_dir():
+    """Carpeta del índice. Vacío en .env = instance/ai_index."""
+    return os.environ.get('AI_INDEX_DIR', '').strip() or os.path.join(app.instance_path, 'ai_index')
 
-    El filtro por permisos se aplica AQUÍ, antes de la búsqueda y antes de
-    construir el prompt. Si se filtrara después, el modelo ya habría leído
-    la nota privada de otro estudiante y podría citarla en su respuesta.
 
-    - Biblioteca: todos los recursos públicos.
-    - Anotaciones: sólo las del propio usuario (notas y archivos).
-    - Grupos: sólo los recursos de grupos a los que pertenece.
-    """
-    upload_dir = app.config['UPLOAD_FOLDER']
-    documentos = []
+def ai_user_group_ids(user_id):
+    return [m.group_id for m in GroupMember.query.filter_by(user_id=user_id).all()]
 
+
+def ai_spec_resource(r):
+    return ai_index.DocSpec(
+        kind='public', resource_id=r.id, title=r.title, owner_id=r.owner_id,
+        origin='Biblioteca',
+        header=f'Autor: {r.author}. Categoría: {r.category or "-"}. Etiquetas: {r.tags or "-"}.',
+        path=os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(r.filename or '')))
+
+
+def ai_spec_private(p):
+    if p.type == 'file':
+        return ai_index.DocSpec(
+            kind='private_file', resource_id=p.id, title=p.title, owner_id=p.owner_id,
+            origin='Tus anotaciones',
+            path=os.path.join(app.config['UPLOAD_FOLDER'], 'private', secure_filename(p.filename or '')))
+    return ai_index.DocSpec(
+        kind='private_note', resource_id=p.id, title=p.title, owner_id=p.owner_id,
+        origin='Tus anotaciones', text=f'{p.title}\n{p.content or ""}')
+
+
+def ai_spec_group_resource(g, group_name=None):
+    if group_name is None:
+        group = db.session.get(Group, g.group_id)
+        group_name = group.name if group else ''
+    return ai_index.DocSpec(
+        kind='group', resource_id=g.id, title=g.title, owner_id=g.user_id, group_id=g.group_id,
+        origin=f'Grupo {group_name}'.strip(),
+        header=f'Descripción: {g.description or "-"}.',
+        path=os.path.join(app.config['UPLOAD_FOLDER'], 'groups', str(g.group_id),
+                          secure_filename(g.filename or '')))
+
+
+def ai_doc_specs():
+    """Todos los documentos de la plataforma, para sincronizar el índice."""
     for r in Resource.query.all():
-        metadatos = (f'Título: {r.title}. Autor: {r.author}. '
-                     f'Categoría: {r.category or "-"}. Etiquetas: {r.tags or "-"}.')
-        contenido = ai_service.extract_text(
-            os.path.join(upload_dir, secure_filename(r.filename or '')))
-        documentos.append(ai_service.Documento(
-            kind='public', id=r.id, title=r.title, origin='Biblioteca',
-            text=f'{metadatos}\n{contenido}'))
-
-    for p in PrivateResource.query.filter_by(owner_id=user_id).all():
-        if p.type == 'file':
-            contenido = ai_service.extract_text(
-                os.path.join(upload_dir, 'private', secure_filename(p.filename or '')))
-            kind = 'private_file'
-        else:
-            contenido = p.content or ''
-            kind = 'private_note'
-        documentos.append(ai_service.Documento(
-            kind=kind, id=p.id, title=p.title, origin='Tus anotaciones',
-            text=f'Título: {p.title}.\n{contenido}'))
-
-    group_ids = [m.group_id for m in GroupMember.query.filter_by(user_id=user_id).all()]
-    if group_ids:
-        nombres = {g.id: g.name for g in Group.query.filter(Group.id.in_(group_ids)).all()}
-        for g in GroupResource.query.filter(GroupResource.group_id.in_(group_ids)).all():
-            contenido = ai_service.extract_text(os.path.join(
-                upload_dir, 'groups', str(g.group_id), secure_filename(g.filename or '')))
-            documentos.append(ai_service.Documento(
-                kind='group', id=g.id, title=g.title,
-                origin=f'Grupo {nombres.get(g.group_id, "")}'.strip(),
-                text=f'Título: {g.title}. Descripción: {g.description or "-"}.\n{contenido}'))
-
-    return documentos
+        yield ai_spec_resource(r)
+    for p in PrivateResource.query.all():
+        yield ai_spec_private(p)
+    nombres = {g.id: g.name for g in Group.query.all()}
+    for g in GroupResource.query.all():
+        yield ai_spec_group_resource(g, nombres.get(g.group_id, ''))
 
 
-def count_ai_documents(user_id):
-    """Cuántos documentos puede consultar el usuario, sin leer los archivos."""
-    group_ids = [m.group_id for m in GroupMember.query.filter_by(user_id=user_id).all()]
-    total = Resource.query.count() + PrivateResource.query.filter_by(owner_id=user_id).count()
-    if group_ids:
-        total += GroupResource.query.filter(GroupResource.group_id.in_(group_ids)).count()
-    return total
+def ai_reindex(spec):
+    """Encola el (re)indexado. Nunca hace fallar la operación que lo llama:
+    si el índice falla, el recurso ya está guardado y la próxima
+    sincronización lo recogerá."""
+    try:
+        ai_index.encolar_indexado(spec)
+    except Exception as exc:
+        app.logger.warning('No se pudo encolar el indexado de %s: %s', spec.key, exc)
+
+
+def ai_unindex(kind, resource_id):
+    try:
+        ai_index.encolar_borrado(f'{kind}:{resource_id}')
+    except Exception as exc:
+        app.logger.warning('No se pudo quitar %s:%s del índice: %s', kind, resource_id, exc)
+
+
+def iniciar_asistente():
+    """Abre el índice y lo sincroniza en segundo plano con la base de datos.
+
+    Se llama al arrancar (python app.py o wsgi.py). La sincronización sólo
+    procesa lo nuevo o modificado, así que los arranques siguientes son rápidos.
+    """
+    ai_index.iniciar(ai_index_dir())
+
+    def obtener_specs():
+        with app.app_context():
+            return list(ai_doc_specs())
+
+    ai_index.encolar_sincronizacion(obtener_specs)
+
+
+def _ai_preparar_pregunta(user_id, data):
+    """Validación, límite de uso, historial y búsqueda, comunes a las dos rutas
+    de chat. Devuelve (contexto, None) o (None, respuesta_de_error)."""
+    question = (data.get('question') or '').strip()
+    if not question:
+        return None, (jsonify({'message': 'Escribe una pregunta'}), 400)
+    if len(question) > AI_MAX_QUESTION_LENGTH:
+        return None, (jsonify({'message': f'La pregunta no puede superar los {AI_MAX_QUESTION_LENGTH} caracteres'}), 400)
+
+    if not ai_service.limitador.permitir(user_id):
+        return None, (jsonify({'message': f'Has hecho demasiadas preguntas seguidas. '
+                                          f'Espera un minuto (límite: {ai_service.AI_RATE_LIMIT} por minuto).'}), 429)
+
+    # Una conversación ajena o inexistente no da error: se empieza una nueva.
+    # (Un 404 aquí lo interpretaría el frontend como "asistente no implementado".)
+    conversation = None
+    conversation_id = data.get('conversation_id')
+    if conversation_id:
+        conversation = db.session.get(AIConversation, str(conversation_id))
+        if conversation and conversation.user_id != user_id:
+            conversation = None
+
+    historial = []
+    consulta = question
+    if conversation:
+        previos = conversation.messages[-AI_HISTORY_TURNS:]
+        historial = [(m.role, m.content) for m in previos]
+        # En preguntas de seguimiento ("¿y la segunda?") la pregunta sola no
+        # basta para buscar: se le suma la pregunta anterior.
+        anteriores = [m.content for m in previos if m.role == 'user']
+        if anteriores:
+            consulta = f'{anteriores[-1]} {question}'
+
+    # Filtro de permisos (sección 5.6): los grupos del usuario se leen en cada
+    # pregunta, así que salir de un grupo corta el acceso de inmediato.
+    fragmentos, info = ai_index.indice().buscar(consulta, user_id, ai_user_group_ids(user_id))
+
+    sources = [{
+        'resource_id': f['resource_id'],
+        'type': f['kind'],
+        'title': f['title'],
+        'origin': f['origin'],
+        'page': f['page'] or None,
+        'snippet': ai_index.snippet(f['text']),
+        'score': f['score'],
+    } for f in fragmentos]
+
+    return {
+        'question': question,
+        'conversation': conversation,
+        'historial': historial,
+        'fragmentos': fragmentos,
+        'sources': sources,
+        'info': info,
+    }, None
+
+
+def _ai_fuentes_citadas(sources, respuesta):
+    """Fuentes que se muestran al estudiante: las que la respuesta cita.
+
+    Al modelo se le entregan los 5 mejores fragmentos, pero con pocos
+    documentos algunos son poco relevantes y el modelo no los usa; mostrarlos
+    como "Fuentes" sería engañoso. Si dice que no encontró nada, no hay
+    fuentes. Si responde sin nombrar ningún documento, se muestran todas.
+    """
+    if respuesta.strip().startswith(ai_service.NO_ENCONTRADO[:30]):
+        return []
+    # Se busca el título en cualquier parte: el modelo no siempre respeta el
+    # formato exacto [Título] (a veces escribe "[Fragmento 1: Título]").
+    texto = respuesta.lower()
+    citadas = [s for s in sources if s['title'] and s['title'].lower() in texto]
+    return citadas or sources
+
+
+def _ai_guardar(user_id, ctx, respuesta):
+    conversation = ctx['conversation']
+    if not conversation:
+        conversation = AIConversation(user_id=user_id)
+        db.session.add(conversation)
+        db.session.flush()
+    db.session.add(AIMessage(conversation_id=conversation.id, role='user', content=ctx['question']))
+    db.session.add(AIMessage(conversation_id=conversation.id, role='assistant', content=respuesta,
+                             sources=json.dumps(ctx['sources'], ensure_ascii=False)))
+    db.session.commit()
+    return conversation.id
 
 
 @app.route('/api/ai/status', methods=['GET'])
@@ -1830,18 +1953,23 @@ def count_ai_documents(user_id):
 def ai_status():
     try:
         user_id = get_current_user_id()
-        disponible, detalle = ai_service.model_status()
-        if not disponible:
-            app.logger.warning('Asistente de IA no disponible: %s', detalle)
+        modelos = ai_service.model_status()
+        if not modelos['llm']:
+            app.logger.warning('Asistente de IA no disponible: %s', modelos['detail'])
 
+        idx = ai_index.indice()
         payload = {
-            'available': disponible,
+            'available': modelos['llm'],
             'model': ai_service.OLLAMA_MODEL,
-            'indexed_documents': count_ai_documents(user_id),
+            'embedding_model': ai_service.OLLAMA_EMBED_MODEL,
+            # Híbrido si hay vectores; si falta ChromaDB o nomic-embed-text,
+            # el asistente sigue respondiendo sólo con BM25.
+            'search_mode': 'hibrido' if (modelos['embeddings'] and idx.coleccion() is not None) else 'lexico',
+            'indexed_documents': idx.contar_accesibles(user_id, ai_user_group_ids(user_id)),
         }
         # El detalle incluye la URL interna de Ollama: sólo se expone en debug.
-        if not disponible and DEBUG_MODE:
-            payload['detail'] = detalle
+        if DEBUG_MODE:
+            payload['detail'] = modelos['detail']
         return jsonify(payload), 200
     except Exception as e:
         return error_response('Error al consultar el asistente', 500, e)
@@ -1850,64 +1978,111 @@ def ai_status():
 @app.route('/api/ai/chat', methods=['POST'])
 @jwt_required()
 def ai_chat():
+    """Respuesta completa en un solo JSON (contrato de la sección 6.4)."""
     try:
         user_id = get_current_user_id()
-        data = request.get_json(silent=True) or {}
+        ctx, error = _ai_preparar_pregunta(user_id, request.get_json(silent=True) or {})
+        if error:
+            return error
 
-        question = (data.get('question') or '').strip()
-        if not question:
-            return jsonify({'message': 'Escribe una pregunta'}), 400
-        if len(question) > AI_MAX_QUESTION_LENGTH:
-            return jsonify({'message': f'La pregunta no puede superar los {AI_MAX_QUESTION_LENGTH} caracteres'}), 400
+        t0 = time.perf_counter()
+        if not ctx['fragmentos']:
+            # Sin fragmentos no se llama al modelo: no hay de dónde responder
+            # y así no tiene ocasión de inventar.
+            respuesta = ai_service.NO_ENCONTRADO
+        else:
+            if not ai_service.cola_modelo.acquire(timeout=ai_service.AI_QUEUE_TIMEOUT):
+                return jsonify({'message': 'El asistente está atendiendo muchas preguntas. '
+                                           'Inténtalo de nuevo en un momento.'}), 503
+            try:
+                respuesta = ai_service.answer(ai_service.build_messages(
+                    ctx['question'], ctx['fragmentos'], ctx['historial']))
+            except ai_service.OllamaError as exc:
+                return error_response('El modelo de IA no está respondiendo en este momento', 503, exc)
+            finally:
+                ai_service.cola_modelo.release()
 
-        # Una conversación ajena o inexistente no da error: se empieza una
-        # nueva. (Un 404 aquí lo interpretaría el frontend como "asistente no
-        # implementado".)
-        conversation = None
-        conversation_id = data.get('conversation_id')
-        if conversation_id:
-            conversation = db.session.get(AIConversation, str(conversation_id))
-            if conversation and conversation.user_id != user_id:
-                conversation = None
+        tiempos = {**ctx['info']['tiempos_ms'], 'generacion': round((time.perf_counter() - t0) * 1000)}
+        app.logger.info('Asistente IA: modo=%s tiempos_ms=%s', ctx['info']['modo'], tiempos)
 
-        historial = []
-        if conversation:
-            previos = conversation.messages[-AI_HISTORY_TURNS:]
-            historial = [(m.role, m.content) for m in previos]
-
-        fragmentos = ai_service.search(collect_ai_documents(user_id), question)
-        try:
-            respuesta = ai_service.answer(question, fragmentos, historial)
-        except ai_service.OllamaError as exc:
-            return error_response('El modelo de IA no está respondiendo en este momento', 503, exc)
-
-        sources = [{
-            'resource_id': f.documento.id,
-            'type': f.documento.kind,
-            'title': f.documento.title,
-            'origin': f.documento.origin,
-            'snippet': ai_service.snippet(f.texto),
-            'score': f.score,
-        } for f in fragmentos]
-
-        if not conversation:
-            conversation = AIConversation(user_id=user_id)
-            db.session.add(conversation)
-            db.session.flush()
-
-        db.session.add(AIMessage(conversation_id=conversation.id, role='user', content=question))
-        db.session.add(AIMessage(conversation_id=conversation.id, role='assistant',
-                                 content=respuesta, sources=json.dumps(sources, ensure_ascii=False)))
-        db.session.commit()
-
+        ctx['sources'] = _ai_fuentes_citadas(ctx['sources'], respuesta)
+        conversation_id = _ai_guardar(user_id, ctx, respuesta)
         return jsonify({
             'answer': respuesta,
-            'conversation_id': conversation.id,
-            'sources': sources,
+            'conversation_id': conversation_id,
+            'sources': ctx['sources'],
+            'search_mode': ctx['info']['modo'],
+            'timings_ms': tiempos,
         }), 200
     except Exception as e:
         db.session.rollback()
         return error_response('Error al procesar la pregunta', 500, e)
+
+
+@app.route('/api/ai/chat/stream', methods=['POST'])
+@jwt_required()
+def ai_chat_stream():
+    """Igual que /api/ai/chat pero la respuesta llega conforme se genera
+    (etapa 4 del plan). Formato NDJSON, un objeto JSON por línea:
+
+        {"type": "sources", "sources": [...], "search_mode": "hibrido"}   candidatos
+        {"type": "token", "content": "La tercera"}
+        {"type": "token", "content": " forma normal..."}
+        {"type": "done", "conversation_id": "uuid", "sources": [...], "timings_ms": {...}}
+                                                       ^ fuentes realmente citadas
+        {"type": "error", "message": "..."}        (sólo si algo falla)
+    """
+    try:
+        user_id = get_current_user_id()
+        ctx, error = _ai_preparar_pregunta(user_id, request.get_json(silent=True) or {})
+        if error:
+            return error
+    except Exception as e:
+        return error_response('Error al procesar la pregunta', 500, e)
+
+    def linea(obj):
+        return json.dumps(obj, ensure_ascii=False) + '\n'
+
+    def generar():
+        yield linea({'type': 'sources', 'sources': ctx['sources'], 'search_mode': ctx['info']['modo']})
+        t0 = time.perf_counter()
+        partes = []
+
+        if not ctx['fragmentos']:
+            partes.append(ai_service.NO_ENCONTRADO)
+            yield linea({'type': 'token', 'content': ai_service.NO_ENCONTRADO})
+        else:
+            if not ai_service.cola_modelo.acquire(timeout=ai_service.AI_QUEUE_TIMEOUT):
+                yield linea({'type': 'error', 'message': 'El asistente está atendiendo muchas preguntas. '
+                                                         'Inténtalo de nuevo en un momento.'})
+                return
+            try:
+                for trozo in ai_service.answer_stream(ai_service.build_messages(
+                        ctx['question'], ctx['fragmentos'], ctx['historial'])):
+                    partes.append(trozo)
+                    yield linea({'type': 'token', 'content': trozo})
+            except ai_service.OllamaError as exc:
+                app.logger.error('Asistente IA (stream): %s', exc)
+                yield linea({'type': 'error', 'message': 'El modelo de IA no está respondiendo en este momento.'})
+                return
+            finally:
+                ai_service.cola_modelo.release()
+
+        respuesta = ''.join(partes).strip()
+        tiempos = {**ctx['info']['tiempos_ms'], 'generacion': round((time.perf_counter() - t0) * 1000)}
+        app.logger.info('Asistente IA (stream): modo=%s tiempos_ms=%s', ctx['info']['modo'], tiempos)
+        ctx['sources'] = _ai_fuentes_citadas(ctx['sources'], respuesta)
+        try:
+            conversation_id = _ai_guardar(user_id, ctx, respuesta)
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.error('No se pudo guardar la conversación: %s', exc)
+            conversation_id = None
+        yield linea({'type': 'done', 'conversation_id': conversation_id,
+                     'sources': ctx['sources'], 'timings_ms': tiempos})
+
+    return Response(stream_with_context(generar()), mimetype='application/x-ndjson',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @app.route('/api/ai/history', methods=['GET'])
@@ -2029,6 +2204,10 @@ if __name__ == '__main__':
     # faltaban en bases de datos antiguas jamás se añadían.
     check_and_update_db()
 
+    # Índice del asistente: se sincroniza en segundo plano con lo que haya en
+    # la base de datos (la app ya responde mientras tanto).
+    iniciar_asistente()
+
     # En local se escucha sólo en 127.0.0.1. En un servidor se puede cambiar con
     # APP_HOST/APP_PORT, aunque para producción conviene usar wsgi.py con
     # waitress o gunicorn (ver docs/ASISTENTE_IA.md).
@@ -2039,7 +2218,7 @@ if __name__ == '__main__':
     print("  UFG Knowledge Hub")
     print(f"  Abre la app en:  http://{host}:{port}")
     print(f"  Modo debug:      {'SÍ' if DEBUG_MODE else 'no'}")
-    print(f"  Asistente IA:    {ai_service.OLLAMA_MODEL} en {ai_service.OLLAMA_URL}")
+    print(f"  Asistente IA:    {ai_service.OLLAMA_MODEL} + {ai_service.OLLAMA_EMBED_MODEL} en {ai_service.OLLAMA_URL}")
     print("=" * 52)
 
     # debug estaba fijado a True. El depurador de Werkzeug permite ejecutar

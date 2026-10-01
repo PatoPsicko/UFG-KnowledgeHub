@@ -23,10 +23,11 @@ SQLAlchemy==2.0.54
 # Carga de variables desde el archivo .env (JWT_SECRET_KEY, CORS_ORIGINS...).
 python-dotenv==1.2.3
 
-# Asistente de IA: extracción de texto de PDF y Word para la búsqueda (RAG).
-# La conexión con Ollama usa sólo la biblioteca estándar.
-pypdf==6.19.0
-python-docx==1.2.0
+# Asistente de IA (ver docs/ASISTENTE_IA.md).
+# La conexión con Ollama y el índice FTS5 usan sólo la biblioteca estándar.
+pypdf==6.19.0          # texto de los PDF
+python-docx==1.2.0     # texto de los Word
+chromadb==1.5.9        # índice vectorial HNSW
 
 # Servidor de producción (sólo hace falta al desplegar; ver wsgi.py).
 #   Windows: pip install waitress

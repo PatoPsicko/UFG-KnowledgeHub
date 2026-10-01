@@ -19,8 +19,13 @@
  *     ]
  *   }
  *
+ * POST /api/ai/chat/stream    (requiere JWT) — misma petición, respuesta NDJSON:
+ *   {"type":"sources","sources":[...]}  {"type":"token","content":"..."}  ...
+ *   {"type":"done","conversation_id":"uuid","sources":[...]}   o   {"type":"error","message":"..."}
+ *
  * GET /api/ai/status          (requiere JWT)
- *   Respuesta: { "available": true, "model": "llama3.1:8b", "indexed_documents": 37 }
+ *   Respuesta: { "available": true, "model": "llama3.1:8b",
+ *                "search_mode": "hibrido", "indexed_documents": 37 }
  *
  * GET /api/ai/history?conversation_id=uuid   (requiere JWT, opcional)
  *   Respuesta: { "messages": [ {"role":"user|assistant","content":"...","created_at":"..."} ] }
@@ -143,21 +148,8 @@ const ai = {
                 };
             }
 
-            if (response.status === 503) {
-                return {
-                    ok: false,
-                    motivo: 'modelo_caido',
-                    mensaje: 'El modelo de IA no está respondiendo en el servidor. Inténtalo más tarde.'
-                };
-            }
-
             if (!response.ok) {
-                let mensaje = `El servidor respondió ${response.status}.`;
-                try {
-                    const datos = await response.json();
-                    if (datos.message) mensaje = datos.message;
-                } catch (_) { /* la respuesta no era JSON */ }
-                return { ok: false, motivo: 'error', mensaje };
+                return this._errorDeRespuesta(response);
             }
 
             const datos = await response.json();
@@ -178,6 +170,124 @@ const ai = {
                 mensaje: 'No se pudo contactar con el servidor. Comprueba que esté en marcha.'
             };
         }
+    },
+
+    /**
+     * Igual que enviarPregunta, pero el texto llega conforme el modelo lo
+     * escribe (POST /api/ai/chat/stream, NDJSON). Así el estudiante ve la
+     * respuesta empezar en un par de segundos aunque tarde en terminar.
+     *
+     * `alRecibir({ texto, sources })` se llama con el texto acumulado cada vez
+     * que llega un trozo. Devuelve lo mismo que enviarPregunta. Si el servidor
+     * no tiene la ruta de streaming, recurre a enviarPregunta.
+     */
+    async enviarPreguntaStream(pregunta, alRecibir = () => {}) {
+        const texto = (pregunta || '').trim();
+        if (!texto) {
+            return { ok: false, motivo: 'vacio', mensaje: 'Escribe una pregunta.' };
+        }
+
+        let response;
+        try {
+            response = await fetch(`${this.baseURL}/api/ai/chat/stream`, {
+                method: 'POST',
+                headers: this.getHeaders(),
+                body: JSON.stringify({ question: texto, conversation_id: this.conversationId })
+            });
+        } catch (error) {
+            return {
+                ok: false,
+                motivo: 'sin_conexion',
+                mensaje: 'No se pudo contactar con el servidor. Comprueba que esté en marcha.'
+            };
+        }
+
+        if (response.status === 404 || !response.body) {
+            return this.enviarPregunta(texto);
+        }
+        if (!response.ok) {
+            return this._errorDeRespuesta(response);
+        }
+
+        const lector = response.body.getReader();
+        const decodificador = new TextDecoder();
+        let pendiente = '';
+        let acumulado = '';
+        let sources = [];
+
+        const procesarLinea = (linea) => {
+            if (!linea.trim()) return null;
+            const evento = JSON.parse(linea);
+            if (evento.type === 'sources') {
+                sources = Array.isArray(evento.sources) ? evento.sources : [];
+            } else if (evento.type === 'token') {
+                acumulado += evento.content || '';
+                alRecibir({ texto: acumulado, sources });
+            } else if (evento.type === 'done') {
+                if (evento.conversation_id) this.conversationId = evento.conversation_id;
+                // Al terminar, el servidor manda sólo las fuentes que la respuesta cita.
+                if (Array.isArray(evento.sources)) sources = evento.sources;
+                return { ok: true, answer: acumulado, sources };
+            } else if (evento.type === 'error') {
+                return { ok: false, motivo: 'modelo_caido', mensaje: evento.message };
+            }
+            return null;
+        };
+
+        try {
+            while (true) {
+                const { value, done } = await lector.read();
+                if (done) break;
+                pendiente += decodificador.decode(value, { stream: true });
+                const lineas = pendiente.split('\n');
+                pendiente = lineas.pop();
+                for (const linea of lineas) {
+                    const final = procesarLinea(linea);
+                    if (final) return final;
+                }
+            }
+            const final = procesarLinea(pendiente);
+            if (final) return final;
+        } catch (error) {
+            return {
+                ok: false,
+                motivo: 'sin_conexion',
+                mensaje: 'Se cortó la conexión mientras llegaba la respuesta.'
+            };
+        }
+
+        // El flujo terminó sin "done": se devuelve lo que haya llegado.
+        return acumulado
+            ? { ok: true, answer: acumulado, sources }
+            : { ok: false, motivo: 'error', mensaje: 'El servidor cerró la respuesta sin contenido.' };
+    },
+
+    /** Traduce una respuesta HTTP de error al formato { ok:false, motivo, mensaje }. */
+    async _errorDeRespuesta(response) {
+        let mensaje = null;
+        try {
+            const datos = await response.json();
+            mensaje = datos.message || null;
+        } catch (_) { /* la respuesta no era JSON */ }
+
+        if (response.status === 401 || response.status === 422) {
+            return {
+                ok: false,
+                motivo: 'sesion',
+                mensaje: 'Tu sesión expiró. Inicia sesión de nuevo para usar el asistente.'
+            };
+        }
+        if (response.status === 429) {
+            return { ok: false, motivo: 'limite', mensaje: mensaje || 'Demasiadas preguntas seguidas. Espera un minuto.' };
+        }
+        if (response.status === 503) {
+            return {
+                ok: false,
+                motivo: 'modelo_caido',
+                mensaje: mensaje || 'El modelo de IA no está respondiendo en el servidor. Inténtalo más tarde.'
+            };
+        }
+        return { ok: false, motivo: 'error', mensaje: mensaje || `El servidor respondió ${response.status}.` };
     },
 
     /** Empieza una conversación nueva (olvida el hilo anterior). */

@@ -10,10 +10,12 @@ El --timeout alto es necesario: sin GPU, el modelo puede tardar más de un
 minuto en contestar y gunicorn cortaría la petición a los 30 s por defecto.
 """
 
-from app import app, db, check_and_update_db
+from app import app, db, check_and_update_db, iniciar_asistente
 
 # Mismo arranque que `python app.py`: crea las tablas que falten (incluidas
-# las del asistente de IA) sin tocar los datos existentes.
+# las del asistente de IA) sin tocar los datos existentes, y sincroniza el
+# índice de búsqueda en segundo plano.
 with app.app_context():
     db.create_all()
 check_and_update_db()
+iniciar_asistente()

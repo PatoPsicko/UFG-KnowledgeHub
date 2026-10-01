@@ -441,6 +441,7 @@ dashboardScreen(userName, viewHtml) {
                 ${fuentes.map(f => /*html*/`
                     <div class="text-xs text-gray-600">
                         <span class="font-medium">${esc(f.title || 'Documento')}</span>
+                        ${f.page ? `<span class="text-gray-500">, p. ${esc(f.page)}</span>` : ''}
                         ${f.origin ? `<span class="text-[10px] text-gray-400"> (${esc(f.origin)})</span>` : ''}
                         ${f.snippet ? `<span class="text-gray-500"> — ${esc(f.snippet)}</span>` : ''}
                     </div>

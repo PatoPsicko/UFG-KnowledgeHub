@@ -727,6 +727,14 @@ const App = {
             this.scrollAiToBottom();
         },
 
+        /** Redibuja sólo la lista de mensajes (barato: se llama por cada trozo). */
+        actualizarMensajesAi() {
+            const lista = document.getElementById('ai-messages');
+            if (!lista) return;
+            lista.innerHTML = App.state.aiMessages.map(m => templates.aiMessage(m)).join('');
+            this.scrollAiToBottom();
+        },
+
         scrollAiToBottom() {
             const lista = document.getElementById('ai-messages');
             if (lista) lista.scrollTop = lista.scrollHeight;
@@ -738,14 +746,21 @@ const App = {
             if (!texto || App.state.aiEnviando) return;
 
             App.state.aiMessages.push({ rol: 'user', texto });
-            App.state.aiMessages.push({ rol: 'assistant', texto: '', pendiente: true });
+            const enCurso = { rol: 'assistant', texto: '', pendiente: true, enCurso: true };
+            App.state.aiMessages.push(enCurso);
             App.state.aiEnviando = true;
             await this.renderAiPanel();
 
-            const respuesta = await ai.enviarPregunta(texto);
+            // La respuesta llega por trozos: se va escribiendo en la burbuja
+            // "Pensando..." en lugar de esperar a que el modelo termine.
+            const respuesta = await ai.enviarPreguntaStream(texto, ({ texto: parcial }) => {
+                enCurso.pendiente = false;
+                enCurso.texto = parcial;
+                this.actualizarMensajesAi();
+            });
 
-            // Se quita el marcador "Pensando..." antes de insertar el resultado.
-            App.state.aiMessages = App.state.aiMessages.filter(m => !m.pendiente);
+            // Se quita la burbuja provisional antes de insertar el resultado final.
+            App.state.aiMessages = App.state.aiMessages.filter(m => !m.enCurso);
 
             if (respuesta.ok) {
                 App.state.aiMessages.push({
