@@ -6,6 +6,36 @@ body {
     font-family: 'Inter', sans-serif;
 }
 
+/* 2.1 Campos de texto legibles en cualquier navegador.
+   La interfaz sólo tiene tema claro. Con Windows o el navegador en modo
+   oscuro, los campos sin color de fondo propio salían negros y el texto
+   escrito no se veía (Tailwind hace que hereden el color del contenedor).
+   - color-scheme: light  evita que el navegador pinte los controles en oscuro.
+   - :where() tiene especificidad 0, así que cualquier clase de Tailwind
+     (bg-gray-50, text-sm...) sigue mandando sobre estos valores. */
+:root {
+    color-scheme: light;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+       textarea, select) {
+    background-color: #ffffff;
+    color: #111827;
+}
+
+:where(input, textarea)::placeholder {
+    color: #9ca3af;
+    opacity: 1;
+}
+
+/* El autocompletado de Chrome pone su propio fondo; se mantiene legible. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #111827;
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+}
+
 /* 3. Estilos para el spinner de carga inicial */
 .initial-load-spinner {
     display: flex;
