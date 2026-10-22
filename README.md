@@ -1,119 +1,108 @@
 # UFG Knowledge Hub
 
 Plataforma donde los estudiantes de la Universidad Francisco Gavidia comparten
-recursos entre facultades: biblioteca común, grupos de trabajo, contactos, chat
-y anotaciones privadas.
+material entre facultades: biblioteca común, asistente de estudio con IA,
+grupos de trabajo, amigos y mensajes, chat global y anotaciones privadas. Cada
+archivo que se sube pasa por un vigilante de seguridad antes de publicarse.
+
+**Fase 1** (octubre de 2026): IA en la nube con varios proveedores gratuitos,
+vigilante de archivos, rediseño completo y la parte social terminada. Detalle en
+[`docs/FASE_1.md`](docs/FASE_1.md).
 
 ## Puesta en marcha
 
 ```bash
-# 1. Crear el entorno virtual (el .venv del repositorio no sirve: se creó en
-#    otra máquina y apunta a una ruta de Python que no existe aquí)
 python -m venv .venv
-
-# 2. Activarlo
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # Linux / macOS
-
-# 3. Instalar dependencias
+.venv\Scripts\activate              # Windows  (Linux/macOS: source .venv/bin/activate)
 pip install -r requirements.txt
-
-# 4. Configuración (opcional en desarrollo)
-copy .env.example .env          # Windows
-cp .env.example .env            # Linux / macOS
-
-# 5. Preparar la base de datos
-python init_database.py         # crea las tablas que falten, no borra nada
-python init_database.py --demo  # además crea un usuario de prueba
-
-# 6. Arrancar
-python app.py
+copy .env.example .env              # Linux/macOS: cp .env.example .env
 ```
 
-Abre **http://127.0.0.1:5001** en el navegador. Flask sirve la API y el frontend
-en el mismo puerto, así que ya no hace falta Live Server ni configurar CORS.
+Abre `.env` y pega al menos una clave de IA gratuita (ver abajo). Luego:
 
-## Comandos de `init_database.py`
+```bash
+python wsgi.py                      # servidor para varias personas (waitress, 32 hilos)
+```
 
-| Comando | Qué hace |
+Abre **http://127.0.0.1:5001**. La base de datos se crea y se actualiza sola al
+arrancar: no hace falta ningún editor de bases de datos.
+
+| Comando | Para qué |
 |---|---|
-| `python init_database.py` | Crea las tablas que falten. **No borra datos.** |
-| `python init_database.py --demo` | Añade un usuario de prueba con contraseña aleatoria. |
-| `python init_database.py --reset` | Borra la base y la recrea vacía. Pide confirmación escrita. |
+| `python app.py` | Servidor de desarrollo (sólo esta PC). |
+| `python wsgi.py` | Servidor para pruebas con 20+ personas a la vez. |
+| `python manage.py demo` | Crea un usuario de prueba con contraseña aleatoria. |
+| `python manage.py admin correo@ufg.edu.sv` | Da acceso al panel de Seguridad. |
+| `python manage.py ai --test "pregunta"` | Comprueba qué modelo de IA responde. |
+| `python manage.py scan archivo.pdf` | Pasa un archivo por las 3 barreras del vigilante. |
+| `python manage.py index --stats` | Estado del índice de búsqueda del asistente. |
+| `python manage.py db --reset` | Borra la base y la deja vacía (pide confirmación). |
+| `python seed_test_data.py` | Con el servidor encendido: 8 usuarios, 100 documentos, grupos y mensajes. |
+| `python -m pytest` | 58 pruebas automáticas del backend. |
+| `python scripts/prueba_carga.py` | Simula 20 estudiantes usando el sitio a la vez. |
 
-## Configuración (`.env`)
+## IA gratis en la nube
 
-| Variable | Para qué sirve |
-|---|---|
-| `JWT_SECRET_KEY` | Clave que firma las sesiones. Si se deja vacía se genera una y se guarda en `instance/.jwt_secret`. |
-| `CORS_ORIGINS` | Orígenes autorizados, separados por comas. Sólo hace falta si sirves el frontend aparte. |
-| `DATABASE_PATH` | Ruta alternativa de la base SQLite. Vacío = `instance/database.db`. |
-| `FLASK_DEBUG` | `1` activa el depurador de Werkzeug. **Déjalo en 0** salvo que estés depurando. |
-| `APP_HOST` / `APP_PORT` | Dirección y puerto de `python app.py`. Vacío = `127.0.0.1:5001`. |
-| `OLLAMA_URL`, `OLLAMA_MODEL`... | Configuración del asistente de IA. Ver `docs/ASISTENTE_IA.md`. |
+El asistente y el vigilante usan un **router de modelos**: prueba los proveedores
+en orden y, si uno se queda sin cuota gratuita, pasa solo al siguiente.
+
+| Proveedor | Clave gratuita | Qué aporta |
+|---|---|---|
+| Google Gemini | https://aistudio.google.com/apikey | Asistente, vectores para la búsqueda y revisión de imágenes |
+| Groq | https://console.groq.com/keys | Respuestas muy rápidas, vigilante y detector de instrucciones ocultas |
+| OpenRouter (opcional) | https://openrouter.ai/keys | Modelos `:free` adicionales |
+| Ollama (opcional) | `winget install Ollama.Ollama` | Respaldo local sin internet |
+
+Pega las claves en `.env` (`GEMINI_API_KEY=...`, `GROQ_API_KEY=...`). Nunca las
+subas al repositorio. Más detalles en [`docs/ASISTENTE_IA.md`](docs/ASISTENTE_IA.md).
+
+## Probar con ~20 personas sin pagar nada
+
+1. `python wsgi.py` en esta PC. Con la IA en la nube la PC sólo atiende la web:
+   en la prueba de carga, 20 usuarios simultáneos dieron 0 errores y respuestas
+   de menos de 35 ms (p95); 50 usuarios, también 0 errores.
+2. Para que entren desde sus casas o celulares, abre un túnel gratuito de
+   Cloudflare (sin cuenta, sin tocar el router ni el firewall):
+
+   ```powershell
+   winget install Cloudflare.cloudflared
+   powershell -ExecutionPolicy Bypass -File scripts\compartir.ps1
+   ```
+
+   Comparte la dirección `https://…trycloudflare.com` que aparece.
+3. Si todos están en la misma red Wi-Fi, también sirve `http://<IP-de-esta-PC>:5001`
+   (Windows pedirá permitir Python en el firewall la primera vez).
 
 ## Estructura
 
 ```
-app.py              API Flask y modelos de datos
-ai_service.py       Asistente de IA: conexión con Ollama, prompt y control de carga
-ai_index.py         Asistente de IA: índice híbrido (ChromaDB + FTS5) y búsqueda
-wsgi.py             Entrada para servidores de producción (waitress/gunicorn)
-init_database.py    Utilidad de base de datos
-index.html          Página única que carga la aplicación
-js/config.js        URL de la API (detecta si la sirve Flask)
-js/api.js           Cliente HTTP
-js/ai.js            Cliente del asistente de IA
-js/ui.js            Plantillas HTML
-js/app.js           Estado, vistas y eventos
-css/style.css       Estilos propios
-docs/               Documentación y capturas del sistema
-uploads/            Archivos subidos (fuera del control de versiones)
-instance/           Base de datos y clave JWT (fuera del control de versiones)
+app.py / wsgi.py        arranque (desarrollo / multiusuario)
+manage.py               herramientas de consola
+hub/                    backend Flask
+  config.py             variables de entorno (.env)
+  models.py, schema.py  tablas SQLite y migración automática de columnas
+  errors.py             errores JSON uniformes
+  api/                  Blueprints: auth, library, social, chat, groups, notes,
+                        profile, realtime (pulso y notificaciones), assistant, admin
+  ai/                   router de modelos, índice híbrido, prompt del asistente
+  security/             vigilante: estático + antivirus + revisión con IA
+index.html, css/app.css frontend (sin compilación, sin CDN de estilos)
+js/core/                API, plantillas seguras, enrutador, estado, sondeo
+js/ui/                  iconos, componentes, diálogos, conversación
+js/views/               una vista por sección
+tests/                  pruebas con pytest (sin red: IA y antivirus simulados)
+scripts/                prueba de carga y túnel de Cloudflare
+docs/                   documentación
 ```
 
-## Asistente de IA
+## Seguridad
 
-> **Hoy funciona en local** (Flask y Ollama en la misma PC). El proyecto está
-> preparado para desplegarse en un servidor cambiando sólo el `.env`.
-
-Botón flotante en la esquina inferior derecha. Responde preguntas sobre el
-**contenido** de los documentos usando **Ollama + Llama 3.1 8B**, con búsqueda
-híbrida por significado y por palabras: vectores con `nomic-embed-text` en
-**ChromaDB (HNSW)** y **BM25 con SQLite FTS5**, combinados por fusión de rango
-recíproco. Cita las fuentes de cada respuesta, responde en streaming y sólo
-consulta lo que el usuario tiene permiso de ver: la biblioteca pública, sus
-propias anotaciones y los recursos de sus grupos.
-
-```powershell
-winget install Ollama.Ollama
-ollama pull llama3.1:8b
-ollama pull nomic-embed-text
-```
-
-Con Ollama en marcha, `python app.py` lo detecta solo e indexa los documentos en
-segundo plano. Si Ollama no está disponible, el widget lo avisa y el resto de la
-aplicación funciona igual.
-
-| Endpoint | Función |
-|---|---|
-| `POST /api/ai/chat` | Recibe la pregunta, devuelve respuesta y fuentes |
-| `POST /api/ai/chat/stream` | Lo mismo, con la respuesta llegando conforme se genera |
-| `GET /api/ai/status` | Indica si el modelo está disponible y cuántos documentos hay |
-| `GET /api/ai/history` | Historial de una conversación |
-
-Herramienta de consola: `python ai_index.py --stats | --sync | --rebuild | --query "..." --user N`.
-
-Arquitectura, configuración, pruebas de permisos y **guía de paso a servidor**:
-[`docs/ASISTENTE_IA.md`](docs/ASISTENTE_IA.md).
-
-## Notas de seguridad
-
-- Los archivos **privados** y los de **grupo** sólo se descargan con sesión
-  iniciada y comprobando que quien pide es el dueño o un miembro del grupo. No
-  los sirvas nunca como archivos estáticos.
-- Sólo se aceptan las extensiones de `ALLOWED_EXTENSIONS` (`app.py`). `.html` y
-  `.svg` están excluidos a propósito porque pueden ejecutar JavaScript.
-- Todo texto que escribe un usuario se pasa por `escapeHtml()` antes de
-  insertarse en la página (`js/ui.js`).
+- Cada archivo pasa por **tres barreras** antes de publicarse: análisis estático,
+  antivirus del sistema (Defender o ClamAV) y revisión con un segundo modelo de IA.
+  Ver [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md).
+- Ningún archivo subido se sirve como estático: toda descarga comprueba la sesión,
+  los permisos y el resultado del vigilante.
+- Todo texto de usuario se escapa al pintarse (`html\`...\`` en `js/core/dom.js`) y
+  la política CSP sólo permite scripts propios.
+- Límites de peticiones en el inicio de sesión, el registro, el chat y el asistente.
 - No subas `.env` ni `instance/` al repositorio.

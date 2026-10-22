@@ -1,11 +1,5 @@
-# Dependencias de UFG Knowledge Hub
+# Dependencias de UFG Knowledge Hub (versiones con las que está probado).
 #
-# Las versiones anteriores (Flask 2.3.3, Werkzeug 2.3.6...) no coincidían con
-# las que el proyecto tenía instaladas realmente (Flask 3.1.x), así que una
-# instalación limpia desde este archivo daba una app distinta a la que se estaba
-# desarrollando. Estas son las versiones con las que la aplicación está probada.
-#
-# Instalación:
 #   python -m venv .venv
 #   .venv\Scripts\activate        (Windows)
 #   source .venv/bin/activate     (Linux/macOS)
@@ -19,16 +13,16 @@ Flask-Bcrypt==1.0.1
 Flask-JWT-Extended==4.7.4
 Werkzeug==3.1.8
 SQLAlchemy==2.0.54
-
-# Carga de variables desde el archivo .env (JWT_SECRET_KEY, CORS_ORIGINS...).
 python-dotenv==1.2.3
 
-# Asistente de IA (ver docs/ASISTENTE_IA.md).
-# La conexión con Ollama y el índice FTS5 usan sólo la biblioteca estándar.
+# Servidor multiusuario (python wsgi.py). Funciona en Windows y Linux.
+waitress==3.0.2
+
+# Asistente de IA. Los proveedores (Gemini, Groq, OpenRouter, Ollama) se
+# llaman con la biblioteca estándar: no hacen falta SDKs.
 pypdf==6.19.0          # texto de los PDF
 python-docx==1.2.0     # texto de los Word
 chromadb==1.5.9        # índice vectorial HNSW
 
-# Servidor de producción (sólo hace falta al desplegar; ver wsgi.py).
-#   Windows: pip install waitress
-#   Linux:   pip install gunicorn
+# Pruebas automáticas (python -m pytest).
+pytest==8.4.2
