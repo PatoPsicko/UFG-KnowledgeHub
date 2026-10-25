@@ -31,7 +31,7 @@ export function skeletonRows(n = 5) {
 const SCAN = {
     clean: ['clean', 'check', 'Verificado'],
     pending: ['pending', 'clock', 'En revisión'],
-    review: ['review', 'alert', 'Pendiente de un admin'],
+    review: ['review', 'alert', 'En cuarentena'],
     blocked: ['blocked', 'lock', 'Bloqueado'],
 };
 
@@ -39,6 +39,29 @@ export function scanBadge(status, { onlyIssues = true } = {}) {
     if (onlyIssues && (status === 'clean' || !status)) return '';
     const [cls, ic, label] = SCAN[status] || SCAN.clean;
     return html`<span class="status status--${cls}">${icon(ic)}${label}</span>`;
+}
+
+/**
+ * Medidor de un valor contra su límite (espacio usado, cuota de la IA).
+ * El relleno pasa de azul a naranja (75 %) y a rojo (90 %) y la pista es un
+ * tono claro del mismo color; el texto siempre dice el valor y, cerca del
+ * límite, lo avisa con icono y palabra: el estado nunca depende sólo del color.
+ */
+export function meter({ label, value, max, text }) {
+    const pct = max ? Math.max(0, Math.min(100, Math.round((value / max) * 100))) : 0;
+    const nivel = pct >= 90 ? 'danger' : pct >= 75 ? 'warn' : 'ok';
+    return html`<div class="meter meter--${nivel}" title="${label}: ${text}">
+        <div class="meter__top"><span class="meter__label">${label}</span><span class="meter__value">${text}</span></div>
+        <div class="meter__track" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${text}">
+            <span class="meter__fill" style="width:${pct}%"></span></div>
+        ${nivel !== 'ok' ? html`<span class="meter__status">${icon('alert')}${nivel === 'danger' ? 'Casi en el límite' : 'Más de tres cuartos usados'}</span>` : ''}
+    </div>`;
+}
+
+/** Botones de opción única (tema, animaciones...). `value` = opción marcada. */
+export function segmented(name, options, value) {
+    return html`<div class="segmented" role="radiogroup" data-pref="${name}">${options.map(([v, label]) =>
+        html`<button type="button" role="radio" data-value="${v}" aria-checked="${v === value}">${label}</button>`)}</div>`;
 }
 
 export function countBadge(n) {

@@ -1,9 +1,10 @@
 /** Mi perfil: datos, foto, color, contraseña y aportes. */
 
 import { api } from '../core/api.js';
-import { $, html, longDate, on, setHtml } from '../core/dom.js';
+import { $, fileSize, html, longDate, on, setHtml } from '../core/dom.js';
+import { prefs } from '../core/prefs.js';
 import { store } from '../core/store.js';
-import { avatar, errorBox, loading } from '../ui/components.js';
+import { avatar, errorBox, loading, meter, segmented } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/overlay.js';
 
@@ -12,12 +13,16 @@ const COLORES = ['#0B6FCB', '#F08A0B', '#2E7D6B', '#B5487A', '#6B4FA3', '#C2453A
 export async function profileView(root, _params, signal) {
     setHtml(root, html`<div class="page">${loading()}</div>`);
     let stats = {};
-    try { stats = await api.get('/api/user/stats'); } catch { /* opcional */ }
+    let uso = null;
+    [stats, uso] = await Promise.all([
+        api.get('/api/user/stats').catch(() => ({})),
+        api.get('/api/files/usage').catch(() => null),
+    ]);
 
     function pintar() {
         const u = store.user;
         setHtml(root, html`<div class="page">
-            <div class="page-head"><div><h1>Mi perfil</h1><p>Así te ven tus compañeros en grupos, mensajes y la biblioteca.</p></div></div>
+            <div class="page-head"><div><h1>Mi perfil</h1><p>Así te ven tus compañeros en los grupos y la biblioteca.</p></div></div>
             <div class="profile">
                 <section class="panel profile-card">
                     ${avatar({ ...u, online: true }, 'xl')}
@@ -31,11 +36,30 @@ export async function profileView(root, _params, signal) {
                     <div class="profile-stats">
                         <div><strong>${stats.resources_count ?? 0}</strong><span>aportes</span></div>
                         <div><strong>${stats.downloads_received ?? 0}</strong><span>descargas</span></div>
-                        <div><strong>${stats.contacts_count ?? 0}</strong><span>amigos</span></div>
                     </div>
                     <p style="margin-top:14px;font-size:13px">En la plataforma desde ${longDate(u.created_at)}</p>
                 </section>
                 <div style="display:flex;flex-direction:column;gap:18px">
+                    <section class="panel">
+                        <div class="panel__head"><h2>Preferencias</h2></div>
+                        <div class="panel__body prefs">
+                            <div class="field"><span class="field__label">Tema</span>
+                                ${segmented('theme', [['system', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']], prefs.get('theme'))}</div>
+                            <div class="field"><span class="field__label">Animaciones</span>
+                                ${segmented('motion', [['system', 'Automáticas'], ['reduced', 'Reducidas'], ['full', 'Completas']], prefs.get('motion'))}
+                                <span class="field__hint">Las luces del asistente y la pantalla de entrada. «Reducidas» las deja quietas.</span></div>
+                            <div class="field"><span class="field__label">Orden de la biblioteca</span>
+                                ${segmented('library_sort', [['recent', 'Recientes'], ['popular', 'Populares'], ['title', 'Por título']], prefs.get('library_sort'))}</div>
+                            <p class="field__hint">Se guardan en tu cuenta: te siguen al celular y a otras computadoras.</p>
+                        </div>
+                    </section>
+                    ${uso ? html`<section class="panel">
+                        <div class="panel__head"><h2>Tus archivos</h2></div>
+                        <div class="panel__body" style="display:grid;gap:16px">
+                            ${meter({ label: 'Espacio usado', value: uso.bytes, max: uso.quota_bytes, text: `${fileSize(uso.bytes) || '0 B'} de ${fileSize(uso.quota_bytes)}` })}
+                            ${meter({ label: 'Subidas en las últimas 24 h', value: uso.uploads_24h, max: uso.uploads_per_day, text: `${uso.uploads_24h} de ${uso.uploads_per_day}` })}
+                        </div>
+                    </section>` : ''}
                     <form class="panel" data-form="profile">
                         <div class="panel__head"><h2>Datos personales</h2></div>
                         <div class="panel__body">
@@ -58,7 +82,8 @@ export async function profileView(root, _params, signal) {
                         <div class="panel__body">
                             <div class="row">
                                 <label class="field"><span class="field__label">Contraseña actual</span><input class="input" name="current_password" type="password" autocomplete="current-password" required></label>
-                                <label class="field"><span class="field__label">Nueva contraseña</span><input class="input" name="new_password" type="password" autocomplete="new-password" minlength="8" required></label>
+                                <label class="field"><span class="field__label">Nueva contraseña</span><input class="input" name="new_password" type="password" autocomplete="new-password" minlength="8" required>
+                                    <span class="field__hint">8 caracteres o más, con letras y números.</span></label>
                             </div>
                             <div data-slot="error"></div>
                         </div>
@@ -68,6 +93,13 @@ export async function profileView(root, _params, signal) {
             </div>
         </div>`);
     }
+
+    on(root, 'click', '[data-pref] [data-value]', async (_e, b) => {
+        const grupo = b.closest('[data-pref]');
+        grupo.querySelectorAll('[data-value]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+        await prefs.set({ [grupo.dataset.pref]: b.dataset.value });
+        toast('Preferencia guardada');
+    }, signal);
 
     on(root, 'click', '.swatch', (_e, b) => {
         root.querySelectorAll('.swatch').forEach((s) => s.setAttribute('aria-pressed', String(s === b)));

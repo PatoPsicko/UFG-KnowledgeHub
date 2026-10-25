@@ -245,6 +245,31 @@ def migrate_layout() -> int:
     return movidos
 
 
+def backfill_sizes() -> int:
+    """Rellena file_size de los registros antiguos que no lo tenían (para las cuotas)."""
+    from .extensions import db
+    from .models import GroupResource, PrivateResource, Resource
+
+    total = 0
+    consultas = (
+        (Resource.query.filter(Resource.file_size.is_(None)), lambda r: path_for('public', r.filename)),
+        (GroupResource.query.filter(GroupResource.file_size.is_(None)),
+         lambda r: path_for('group', r.filename, r.group_id)),
+        (PrivateResource.query.filter(PrivateResource.file_size.is_(None), PrivateResource.filename.isnot(None)),
+         lambda r: path_for('private', r.filename, r.owner_id)),
+    )
+    for consulta, ruta_de in consultas:
+        for fila in consulta.all():
+            ruta = ruta_de(fila)
+            if os.path.isfile(ruta):
+                fila.file_size = os.path.getsize(ruta)
+                total += 1
+    if total:
+        db.session.commit()
+        log.info('Tamaño de archivo completado en %s registros antiguos', total)
+    return total
+
+
 def _referenced() -> dict[str, set[str]]:
     from .models import GroupResource, PrivateResource, Resource, User
 

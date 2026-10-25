@@ -223,7 +223,7 @@ def chat_stream():
             if not ok:
                 return
 
-        respuesta = ''.join(partes).strip()
+        respuesta = assistant.normalizar_citas(''.join(partes).strip())
         # Si el modelo repitió el aviso, no se muestra dos veces.
         aviso = assistant.AVISO_GENERAL
         if respuesta.count(aviso) > 1:

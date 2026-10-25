@@ -93,6 +93,12 @@ _RE_GRACIAS = re.compile(
     r'[\s!.,]*(gracias)?[\s!.]*$', re.IGNORECASE)
 _RE_SIN_INFORMACION = re.compile(r'no (encontre|hay informacion|tengo informacion|se menciona)', re.IGNORECASE)
 _RE_CITA = re.compile(r'\[(\d{1,2})\]')
+# gpt-oss a veces cita con sus propios corchetes: «【2】» o «【2†L1-L4】».
+_RE_CITA_GPT = re.compile(r'【(\d{1,2})(?:†[^】]*)?】')
+
+
+def normalizar_citas(texto: str) -> str:
+    return _RE_CITA_GPT.sub(r'[\1]', texto)
 
 
 def respuesta_conversacional(texto: str) -> str | None:
@@ -116,7 +122,7 @@ Con cada pregunta recibes:
 - EXTRACTOS: fragmentos numerados [1], [2]... del contenido de esos documentos.
 
 Cómo responder:
-1. Basa tu respuesta en los EXTRACTOS. Después de cada dato que saques de ellos escribe su número entre corchetes, por ejemplo: "La 3FN elimina dependencias transitivas [2]." Usa sólo números que existan.
+1. Basa tu respuesta en los EXTRACTOS. Después de cada dato que saques de ellos escribe su número entre corchetes normales, por ejemplo: "La 3FN elimina dependencias transitivas [2]." Usa sólo números que existan y nunca otro formato de cita.
 2. Si piden material, recomendaciones o "qué hay sobre...", usa el CATÁLOGO: nombra cada documento en **negrita** con su título exacto, di dónde está (Biblioteca, grupo o anotaciones) y en una línea para qué sirve.
 3. Si los extractos y el catálogo NO responden pero la pregunta SÍ es académica (una materia, un tema de clase, cómo estudiar), empieza exactamente con: "{AVISO_GENERAL}" y explica con tu conocimiento general, sin citar números.
 4. Si la pregunta NO tiene que ver con estudios ni con la UFG (deportes, farándula, chismes, política, chistes, tareas ajenas a lo académico...), responde ÚNICAMENTE: {MARCADOR_FUERA}
@@ -348,6 +354,7 @@ def ajustar_respuesta(ctx: Contexto, texto: str) -> str:
     """Cambia el marcador de «fuera de tema» y añade el aviso de conocimiento general."""
     if MARCADOR_FUERA in texto[:40]:
         return fuera_de_tema()
+    texto = normalizar_citas(texto)
     if not ctx.fragmentos and not ctx.catalogo and not texto.startswith(AVISO_GENERAL[:20]):
         texto = f'{AVISO_GENERAL}\n\n{texto}'
     return texto

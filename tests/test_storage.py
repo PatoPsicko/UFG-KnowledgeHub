@@ -74,6 +74,16 @@ def test_legacy_files_are_moved_and_still_served(app, make_user):
     assert ana.get(f'/api/resources/{rid}/file').status_code == 200
 
 
+def test_missing_sizes_are_filled(app, make_user):
+    ana = make_user('Ana')
+    rid = _subir(ana).get_json()['id']
+    with app.app_context():
+        db.session.get(Resource, rid).file_size = None
+        db.session.commit()
+        assert storage.backfill_sizes() == 1
+        assert db.session.get(Resource, rid).file_size > 0
+
+
 def test_cleanup_removes_only_old_orphans(app, make_user):
     ana = make_user('Ana')
     _subir(ana)
@@ -95,3 +105,22 @@ def test_cleanup_removes_only_old_orphans(app, make_user):
         assert os.path.exists(reciente)
         assert len(os.listdir(os.path.join(base, 'library'))) == 2  # el subido y el reciente
         assert storage.stats()['folders']['library']['files'] == 2
+
+
+def test_signed_download_links(make_user, client):
+    ana, beto = make_user('Ana'), make_user('Beto')
+    rid = _subir(ana).get_json()['id']
+    nota = _subir(ana, 'mio.pdf', url='/api/private-resources').get_json()['id']
+    r = ana.post('/api/files/link', {'path': f'/api/resources/{rid}/file?download=1'})
+    url = r.get_json()['url']
+    # El enlace sirve sin cabecera de sesión (así funciona en las web views)...
+    descarga = client.get(url)
+    assert descarga.status_code == 200 and 'attachment' in descarga.headers['Content-Disposition']
+    # ...pero sólo para esa ruta, y uno manipulado no sirve.
+    assert client.get(url.replace(f'/resources/{rid}/', '/resources/999/')).status_code == 403
+    assert client.get(url[:-4] + 'xxxx').status_code == 403
+    # Otro estudiante no puede pedir enlace de un archivo privado ajeno.
+    enlace = beto.post('/api/files/link', {'path': f'/api/private-resources/{nota}/download'}).get_json()['url']
+    assert client.get(enlace).status_code == 404
+    assert ana.post('/api/files/link', {'path': '/api/admin/overview'}).status_code == 400
+    assert ana.get('/api/files/usage').get_json()['uploads_24h'] == 2

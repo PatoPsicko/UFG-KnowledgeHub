@@ -1107,8 +1107,12 @@ body { overflow-x: hidden; }
     .kv { grid-template-columns: 1fr; }
 }
 
+/* Si el sistema pide menos movimiento se respeta, salvo que el estudiante haya
+   elegido «Animaciones completas» en Preferencias (data-motion="full"). */
 @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+    :root:not([data-motion="full"]) *, :root:not([data-motion="full"]) *::before, :root:not([data-motion="full"]) *::after {
+        animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important;
+    }
 }
 
 
@@ -1283,4 +1287,239 @@ body { overflow-x: hidden; }
     .topbar { display: flex; height: 56px; }
     .page { padding-top: 6px; }
     .notif-panel { left: 12px; right: 12px; bottom: 12px; width: auto; }
+}
+
+
+/* --- 18. Fase 2: luces, movimiento, celular y app instalable ----------------------- */
+
+/* Movimiento: main.js pone data-motion="reduced" si el estudiante lo pidió en
+   Preferencias o si su sistema pide menos animaciones (prefers-reduced-motion).
+   «Completas» en Preferencias las deja activas aunque el sistema diga lo contrario. */
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+}
+
+/* Pantalla de entrada: el logo aparece y una línea de luz azul y naranja lo
+   recorre; se va con un fundido cuando la app está lista. */
+.splash {
+    position: fixed; inset: 0; z-index: 200; display: grid; place-content: center; justify-items: center; gap: 22px;
+    background: var(--paper); transition: opacity .45s var(--ease), visibility .45s;
+}
+.splash__logo { width: min(300px, 66vw); height: auto; animation: splash-logo .7s var(--ease) both; }
+.splash__light {
+    width: min(210px, 48vw); height: 3px; border-radius: 3px; opacity: .9;
+    background: linear-gradient(90deg, transparent, var(--ufg-blue) 30%, var(--ufg-orange) 70%, transparent);
+    background-size: 220% 100%; animation: splash-luz 1.2s var(--ease) infinite;
+}
+.splash.is-leaving { opacity: 0; visibility: hidden; }
+.splash.is-leaving .splash__logo { transform: scale(1.03); transition: transform .45s var(--ease); }
+@keyframes splash-logo { from { opacity: 0; transform: translateY(8px) scale(.97); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes splash-luz { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .splash { background: #121212; } }
+:root[data-theme="dark"] .splash { background: var(--paper); }
+@media (prefers-reduced-motion: reduce) { .splash__logo, .splash__light { animation: none; } }
+.boot { min-height: 100dvh; }
+
+/* Botones: responden al toque con un pequeño hundimiento. */
+.btn, .icon-btn, .chip, .desk__send, .segmented button, .theme-switch, .tabbar__item, .source {
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color .15s, border-color .15s, color .15s, box-shadow .2s, transform .12s var(--ease);
+}
+.btn:active:not(:disabled), .icon-btn:active, .chip:active, .desk__send:active:not(:disabled),
+.segmented button:active, .theme-switch:active, .tabbar__item:active, .source:active { transform: scale(.96); }
+.btn--primary:hover:not(:disabled) { box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--ufg-blue) 85%, transparent); }
+.btn--accent:hover:not(:disabled) { box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--ufg-orange) 90%, transparent); }
+.nav__item[hidden] { display: none; }
+
+/* --- Luces del asistente ---
+   Un anillo de luz azul y naranja gira alrededor de la caja de texto al
+   enfocarla; mientras el asistente piensa gira más rápido, el icono late y
+   un brillo difuso aparece bajo la cabecera. Al escribir la respuesta se
+   calma, y en reposo desaparece. */
+@property --luz { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+
+.desk { position: relative; isolation: isolate; }
+.desk > :not(.desk__aura) { position: relative; z-index: 1; }
+.desk__aura {
+    position: absolute; z-index: 0; left: -10%; right: -10%; top: 36px; height: 200px; pointer-events: none;
+    background: radial-gradient(42% 60% at 26% 32%, rgba(11, 111, 203, .72), transparent 70%),
+                radial-gradient(36% 55% at 74% 26%, rgba(240, 138, 11, .5), transparent 70%);
+    filter: blur(26px); opacity: 0; transition: opacity .6s var(--ease);
+    animation: aura-flota 7s ease-in-out infinite alternate;
+}
+.desk[data-state="thinking"] .desk__aura { opacity: .8; }
+.desk[data-state="streaming"] .desk__aura { opacity: .35; }
+@keyframes aura-flota { from { transform: translateX(-6%) scaleY(.9); } to { transform: translateX(6%) scaleY(1.05); } }
+
+.desk__field { position: relative; flex: 1; display: flex; isolation: isolate; border-radius: 12px; }
+.desk__field .desk__input { flex: 1; width: 100%; }
+.desk__field::before, .desk__field::after {
+    content: ''; position: absolute; pointer-events: none; opacity: 0;
+    background: conic-gradient(from var(--luz), var(--ufg-blue), #6BB8FF 22%, var(--ufg-orange) 48%, #FFC56B 60%, var(--ufg-blue) 82%);
+    animation: luz-giro 5s linear infinite; transition: opacity .35s var(--ease);
+}
+/* Anillo: el degradado recortado a un borde de 2 px. */
+.desk__field::before {
+    inset: -2px; border-radius: 14px; padding: 2px;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+}
+/* Halo: el mismo degradado, difuminado detrás de la caja. */
+.desk__field::after { inset: 4px; z-index: -1; border-radius: 12px; filter: blur(14px); }
+.desk__field:focus-within::before { opacity: .8; }
+.desk__field:focus-within .desk__input { border-color: transparent; }
+.desk[data-state="thinking"] .desk__field::before { opacity: 1; animation-duration: 1.8s; }
+.desk[data-state="thinking"] .desk__field::after { opacity: .5; animation-duration: 1.8s; }
+.desk[data-state="streaming"] .desk__field::before { opacity: .65; animation-duration: 3s; }
+.desk[data-state="streaming"] .desk__field::after { opacity: .2; animation-duration: 3s; }
+@keyframes luz-giro { to { --luz: 360deg; } }
+
+.desk[data-state="thinking"] .desk__mark { animation: latido 1.6s var(--ease) infinite; }
+@keyframes latido {
+    0% { box-shadow: 0 0 0 0 rgba(240, 138, 11, .55); }
+    70% { box-shadow: 0 0 0 10px rgba(240, 138, 11, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(240, 138, 11, 0); }
+}
+
+.queue-pill {
+    display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px;
+    font-size: 13.5px; font-weight: 600; color: #FFD9A8;
+    background: linear-gradient(90deg, rgba(240, 138, 11, .12), rgba(240, 138, 11, .34), rgba(240, 138, 11, .12));
+    background-size: 200% 100%; animation: shimmer 2.2s linear infinite;
+}
+.queue-pill svg { width: 15px; height: 15px; }
+.queue-note { display: block; margin-top: 8px; font-size: 13.5px; color: #9FB3CC; }
+.turn__meta { font-size: 12px; color: #8EA3BD; }
+
+/* --- Medidores, preferencias y avisos ---------------------------------------- */
+.meter { display: grid; gap: 6px; }
+.meter__top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 14px; }
+.meter__label { color: var(--ink-2); }
+.meter__value { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter__track { height: 8px; border-radius: 4px; background: var(--ufg-blue-100); overflow: hidden; }
+.meter__fill { display: block; height: 100%; min-width: 2px; border-radius: 4px; background: var(--ufg-blue); transition: width .5s var(--ease); }
+.meter--warn .meter__track { background: var(--ufg-orange-50); }
+.meter--warn .meter__fill { background: var(--ufg-orange); }
+.meter--danger .meter__track { background: var(--danger-50); }
+.meter--danger .meter__fill { background: var(--danger); }
+.meter__status { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--warning); }
+.meter--danger .meter__status { color: var(--danger); }
+.meter__status svg { width: 14px; height: 14px; }
+
+.segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.segmented button { border: 0; background: transparent; padding: 7px 13px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--ink-2); }
+.segmented button:hover { color: var(--ink); }
+.segmented button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+.prefs .field + .field { margin-top: 16px; }
+.prefs > .field__hint { margin-top: 14px; display: block; }
+
+.notice {
+    display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; padding: 10px 12px;
+    border-radius: var(--r-md); background: var(--success-50); color: var(--success); font-size: 14px;
+}
+.notice svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+
+.sec-split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; margin: 14px 0 8px; }
+.quota-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+.quota h4 { font-size: 14.5px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.quota .meter + .meter { margin-top: 12px; }
+.quota > .meter__status { margin-top: 8px; }
+
+/* --- Celular ---------------------------------------------------------------- */
+.tabbar, .history-mobile { display: none; }
+#notif-slot { position: absolute; }
+.topbar__brand img { height: 30px; width: auto; }
+.topbar__brand:hover { text-decoration: none; }
+.topbar__bell { margin-left: auto; }
+
+@media (max-width: 980px) {
+    .topbar { padding: env(safe-area-inset-top) 12px 0; height: calc(56px + env(safe-area-inset-top)); }
+    .sidebar { z-index: 70; padding-top: calc(18px + env(safe-area-inset-top)); padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+    .app.nav-open .drawer-backdrop { z-index: 65; }
+    .sidebar__actions .bell-wrap { display: none; }
+
+    /* Barra inferior: las cinco secciones al alcance del pulgar. */
+    .tabbar {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px;
+        padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+        background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(10px);
+        border-top: 1px solid var(--line);
+    }
+    .tabbar__item {
+        position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+        min-height: 50px; padding: 5px 2px; border-radius: 12px; color: var(--ink-3);
+        font-size: 11.5px; font-weight: 600; line-height: 1.1; text-align: center;
+    }
+    .tabbar__item span:not(.nav__count) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tabbar__item svg { width: 22px; height: 22px; }
+    .tabbar__item:hover { text-decoration: none; }
+    .tabbar__item[aria-current="page"] { color: var(--ufg-blue-700); background: var(--ufg-blue-50); }
+    .tabbar__item[aria-current="page"] svg { color: var(--ufg-blue); }
+    .tabbar__item .nav__count { position: absolute; top: 3px; left: calc(50% + 5px); min-width: 17px; height: 17px; padding: 0 4px; font-size: 10.5px; margin: 0; }
+    :root[data-theme="dark"] .tabbar__item[aria-current="page"] { color: #fff; }
+
+    .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+    .toasts { bottom: calc(80px + env(safe-area-inset-bottom)); }
+    .notif-panel { z-index: 90; bottom: calc(78px + env(safe-area-inset-bottom)); max-height: 70dvh; display: flex; flex-direction: column; }
+    .notif-panel .notif-list { overflow-y: auto; }
+
+    /* Alturas con dvh: el área visible real del celular (sin la barra del navegador). */
+    .assistant-page, .messenger { display: block; height: auto; min-height: 0; }
+    .history-mobile { display: inline-flex; margin: 0 0 10px; }
+    .assistant-page .desk {
+        height: calc(100dvh - 56px - 68px - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+        min-height: 420px;
+    }
+    .home__desk { position: static; height: min(640px, calc(100dvh - 56px - 68px - 32px)); min-height: 440px; }
+    .group-chat { height: calc(100dvh - 56px - 68px - 170px); min-height: 380px; }
+    .sec-split { grid-template-columns: 1fr; }
+    .table-wrap .table { min-width: 680px; }
+
+    /* 16 px evita que el iPhone haga zoom al tocar un campo. */
+    .input, .select, .textarea, .desk__input, .composer .textarea { font-size: 16px; }
+    .drawer { padding-bottom: env(safe-area-inset-bottom); }
+    .drawer__head { padding-top: calc(18px + env(safe-area-inset-top)); }
+}
+
+@media (max-width: 640px) {
+    .page-head { margin-bottom: 16px; }
+    .page-head__actions { width: 100%; }
+    .desk__head { padding: 12px 14px; }
+    .desk__log { padding: 14px 14px 6px; }
+    .desk__form { padding: 10px 10px 12px; }
+    .desk__note { display: none; }
+    .segmented { display: flex; }
+    .segmented button { flex: 1 1 auto; }
+
+    /* Diálogos como hoja que sube desde abajo. */
+    dialog.dialog, dialog.dialog--wide {
+        width: 100%; max-width: 100%; max-height: 92dvh; margin: auto 0 0;
+        border-radius: 20px 20px 0 0;
+    }
+    dialog.dialog[open] { animation: hoja-sube .26s var(--ease); }
+    .dialog__foot { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+    .dialog__foot .btn { flex: 1; }
+}
+@keyframes hoja-sube { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+
+/* Pantallas táctiles: blancos de 40 px y acciones visibles sin pasar el ratón. */
+@media (pointer: coarse) {
+    .icon-btn--sm { width: 40px; height: 40px; }
+    .btn--sm { height: 38px; }
+    .history__item .icon-btn { width: 36px; height: 36px; opacity: 1; }
+    .msg-del { opacity: 1; }
+}
+
+/* Biblioteca en el celular: las áreas pasan a una fila deslizable de chips
+   para que los documentos se vean sin tener que bajar. */
+@media (max-width: 980px) {
+    .facets { margin: 0 -16px 6px; padding: 0 16px 8px; overflow-x: auto; scrollbar-width: none; }
+    .facets::-webkit-scrollbar { display: none; }
+    .facet { display: flex; gap: 6px; min-width: 0; width: max-content; }
+    .facet h3 { display: none; }
+    .facet__item { width: auto; white-space: nowrap; gap: 7px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+    .facet__item--sub { padding-left: 12px; border-style: dashed; }
+    .facet__n { margin-left: 2px; }
 }

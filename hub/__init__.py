@@ -28,6 +28,7 @@ def _security_headers(app: Flask) -> None:
            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
            "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; "
            "connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; "
+           "manifest-src 'self'; worker-src 'self'; "
            "form-action 'self'; frame-ancestors 'none'")
 
     @app.after_request
@@ -58,8 +59,9 @@ def create_app(overrides: dict | None = None) -> Flask:
     register_error_handlers(app)
     _security_headers(app)
 
-    from .api import admin, assistant, auth, chat, frontend, groups, library, notes, profile, realtime, social
-    for modulo in (auth, library, social, chat, groups, notes, profile, realtime, assistant, admin, frontend):
+    from .api import (admin, assistant, auth, chat, files, frontend, groups, library, notes, profile, realtime,
+                      social)
+    for modulo in (auth, library, social, chat, groups, notes, profile, realtime, assistant, admin, files, frontend):
         app.register_blueprint(modulo.bp)
 
     from . import storage
@@ -69,6 +71,7 @@ def create_app(overrides: dict | None = None) -> Flask:
         db.engine.dispose()  # las conexiones nuevas ya traen los PRAGMA
         ensure_schema()
         storage.migrate_layout()
+        storage.backfill_sizes()
 
     from .ai import index as ai_index
     from .security import pipeline

@@ -2,6 +2,7 @@
 
 import { api } from '../core/api.js';
 import { $, debounce, fileSize, html, longDate, on, raw, setHtml, timeAgo } from '../core/dom.js';
+import { prefs } from '../core/prefs.js';
 import { store } from '../core/store.js';
 import { AREAS, PREVIEWABLE, SUGGESTED_TAGS, areaOf, typeLabel } from '../data/categories.js';
 import { avatar, empty, scanBadge, skeletonRows } from '../ui/components.js';
@@ -110,7 +111,19 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
     drawer.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeDrawer));
 
     let objectUrl = null;
-    if (puedePrevisualizar) {
+    // Los navegadores del celular (y las web views) no muestran un PDF dentro
+    // de un iframe: se abre con un enlace firmado en el visor del teléfono.
+    const pdfEnCelular = r.extension === 'pdf' && matchMedia('(max-width: 980px), (pointer: coarse)').matches;
+    if (puedePrevisualizar && pdfEnCelular) {
+        try {
+            const url = await api.link(`/api/resources/${r.id}/file`);
+            setHtml(drawer.querySelector('[data-slot="preview"]'), html`<div class="empty" style="padding:20px">${icon('file')}
+                <p>El PDF se abre en el visor de tu teléfono.</p>
+                <a class="btn btn--primary" href="${url}" target="_blank" rel="noopener">${icon('eye')}Abrir PDF</a></div>`);
+        } catch (err) {
+            setHtml(drawer.querySelector('[data-slot="preview"]'), html`<div class="empty" style="padding:20px"><p>${err.message}</p></div>`);
+        }
+    } else if (puedePrevisualizar) {
         try {
             const blob = await api.blob(`/api/resources/${r.id}/file`);
             const slot = drawer.querySelector('[data-slot="preview"]');
@@ -233,7 +246,7 @@ export function uploadDialog(resource = null, onDone = () => {}) {
 /* --- Vista -------------------------------------------------------------------- */
 export async function libraryView(root, { query = {} }, signal) {
     const estado = {
-        q: query.q || '', category: query.category || '', scope: query.scope || 'all', sort: query.sort || 'recent',
+        q: query.q || '', category: query.category || '', scope: query.scope || 'all', sort: query.sort || prefs.get('library_sort'),
         resources: [], total: 0, categories: [],
     };
 
@@ -337,7 +350,11 @@ export async function libraryView(root, { query = {} }, signal) {
         cargar();
     }, signal);
     $('[name="q"]', root).addEventListener('input', debounce((e) => { estado.q = e.target.value.trim(); cargar(); }, 300), { signal });
-    $('[name="sort"]', root).addEventListener('change', (e) => { estado.sort = e.target.value; cargar(); }, { signal });
+    $('[name="sort"]', root).addEventListener('change', (e) => {
+        estado.sort = e.target.value;
+        prefs.set({ library_sort: estado.sort });  // se recuerda para la próxima vez
+        cargar();
+    }, { signal });
 
     // Los documentos propios en revisión cambian de estado solos: se refresca de vez en cuando.
     store.on('pulse', ({ pulse, previo }) => {

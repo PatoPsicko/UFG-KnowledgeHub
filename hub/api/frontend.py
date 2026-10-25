@@ -25,6 +25,29 @@ def index():
     return respuesta
 
 
+@bp.get('/manifest.webmanifest')
+def manifest():
+    """Manifiesto de la app instalable (PWA): nombre, íconos y colores."""
+    respuesta = send_from_directory(ROOT_DIR, 'manifest.webmanifest', mimetype='application/manifest+json', max_age=0)
+    respuesta.headers['Cache-Control'] = 'no-cache'
+    return respuesta
+
+
+@bp.get('/sw.js')
+def service_worker():
+    """Service worker en la raíz para que controle toda la app."""
+    respuesta = send_from_directory(ROOT_DIR, 'sw.js', mimetype='text/javascript', max_age=0)
+    respuesta.headers['Cache-Control'] = 'no-cache'
+    respuesta.headers['Service-Worker-Allowed'] = '/'
+    return respuesta
+
+
+@bp.get('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(ROOT_DIR, 'img', 'icons'), 'favicon-32.png', mimetype='image/png',
+                               max_age=86400)
+
+
 @bp.get('/api/health')
 def health():
     return jsonify({'status': 'OK', 'message': 'UFG Knowledge Hub API is running'}), 200

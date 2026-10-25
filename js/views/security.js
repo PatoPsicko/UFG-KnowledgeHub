@@ -1,14 +1,48 @@
-/** Panel de seguridad (sólo administradores): lo que revisó el vigilante de archivos. */
+/**
+ * Panel de seguridad (sólo administradores).
+ *
+ * Lo limpio se publica solo: aquí sólo llega lo que el vigilante dejó en
+ * cuarentena (dudoso o peligroso), con su motivo, para aprobarlo o rechazarlo.
+ * También muestra cuánta cuota gratuita le queda a cada modelo de IA y el
+ * espacio de la carpeta de archivos.
+ */
 
 import { api } from '../core/api.js';
 import { $, fileSize, html, longDate, on, setHtml, timeAgo } from '../core/dom.js';
 import { store } from '../core/store.js';
-import { avatar, empty, loading, scanBadge } from '../ui/components.js';
+import { avatar, empty, loading, meter, scanBadge } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { closeDrawer, confirmDialog, openDrawer, toast } from '../ui/overlay.js';
 
 const TIPO = { public: 'Biblioteca', group: 'Grupo', private: 'Privado', avatar: 'Foto de perfil' };
-const FILTROS = [['', 'Todos'], ['review', 'Por revisar'], ['blocked', 'Bloqueados'], ['pending', 'En proceso'], ['clean', 'Limpios']];
+const FILTROS = [['quarantine', 'En cuarentena'], ['', 'Todos'], ['blocked', 'Bloqueados'], ['pending', 'En proceso'], ['clean', 'Limpios']];
+const CARPETAS = { library: 'Biblioteca', private: 'Mi espacio', groups: 'Grupos', profile: 'Fotos de perfil', tmp: 'Subidas en curso' };
+const miles = (n) => (n ?? 0).toLocaleString('es-SV');
+
+/** Cuota gratuita de cada modelo según las cabeceras de su última respuesta. */
+function cuotas(lista = []) {
+    if (!lista.length) {
+        return html`<p class="muted" style="font-size:14px">Todavía no hay datos: aparecen tras la primera respuesta de cada modelo.</p>`;
+    }
+    return html`<div class="quota-grid">${lista.map((q) => html`<div class="quota">
+        <h4>${q.model.replace(/^groq\//, '')}</h4>
+        ${q.tokens_limit ? meter({ label: 'Tokens este minuto', value: q.tokens_limit - (q.tokens_remaining ?? q.tokens_limit), max: q.tokens_limit,
+            text: `${miles(q.tokens_limit - (q.tokens_remaining ?? q.tokens_limit))} de ${miles(q.tokens_limit)}` }) : ''}
+        ${q.requests_limit ? meter({ label: 'Peticiones hoy', value: q.requests_limit - (q.requests_remaining ?? q.requests_limit), max: q.requests_limit,
+            text: `${miles(q.requests_limit - (q.requests_remaining ?? q.requests_limit))} de ${miles(q.requests_limit)}` }) : ''}
+        ${q.cooldown_seconds ? html`<span class="meter__status">${icon('clock')}En pausa ${q.cooldown_seconds} s por límite de cuota</span>` : ''}
+    </div>`)}</div>`;
+}
+
+function disco(st) {
+    if (!st) return '';
+    const total = Object.values(st.folders).reduce((a, f) => a + f.bytes, 0);
+    return html`<div class="stats-line" style="margin:4px 0 0">
+        ${Object.entries(st.folders).filter(([k]) => k !== 'tmp').map(([k, f]) => html`<span><strong>${miles(f.files)}</strong>${CARPETAS[k] || k} (${fileSize(f.bytes) || '0 B'})</span>`)}
+        <span><strong>${fileSize(total) || '0 B'}</strong>en total</span>
+        ${st.free_bytes != null ? html`<span><strong>${fileSize(st.free_bytes)}</strong>libres en el disco</span>` : ''}
+    </div>`;
+}
 
 function capa(n, titulo, texto, estado, activo) {
     return html`<section class="panel layer"><span class="layer__n">${n}</span><h3>${titulo}</h3><p>${texto}</p>
@@ -44,11 +78,11 @@ function detalle(s) {
                     ${ia.prompt_guard !== undefined ? html`<br><span style="color:var(--ink-3)">Prompt Guard: ${Math.round(ia.prompt_guard * 100)} % de probabilidad de instrucciones ocultas.</span>` : ''}`
                     : s.kind === 'private' ? 'No se aplica a archivos privados.' : 'Todavía no se ejecutó.'}</p></div>
             <div style="display:flex;gap:8px;margin-top:22px;flex-wrap:wrap">
-                ${s.status !== 'clean' ? html`<button class="btn btn--primary" data-decide="approve">${icon('check')}Aprobar y publicar</button>` : ''}
-                ${s.status !== 'blocked' ? html`<button class="btn btn--danger" data-decide="block">${icon('lock')}Bloquear</button>` : ''}
+                ${s.awaiting_decision || (s.status !== 'clean' && s.status !== 'blocked') ? html`<button class="btn btn--primary" data-decide="approve">${icon('check')}Aprobar y publicar</button>` : ''}
+                ${s.awaiting_decision || s.status === 'clean' ? html`<button class="btn btn--danger" data-decide="reject">${icon('lock')}Rechazar</button>` : ''}
                 <button class="btn btn--secondary" data-decide="rescan">${icon('refresh')}Volver a revisar</button>
             </div>
-            <p style="font-size:13px;color:var(--ink-3);margin-top:10px">Bloquear borra el archivo del servidor y veta su huella para que no se pueda volver a subir.</p>
+            <p style="font-size:13px;color:var(--ink-3);margin-top:10px">Rechazar borra el archivo del servidor y veta su huella para que no se pueda volver a subir.</p>
         </div>`;
 }
 
@@ -57,11 +91,11 @@ export async function securityView(root, _params, signal) {
         setHtml(root, html`<div class="page">${empty({ icon: 'lock', title: 'Sólo para administradores', text: 'Pide a la coordinación que agregue tu correo a ADMIN_EMAILS.' })}</div>`);
         return;
     }
-    let filtro = 'review';
+    let filtro = 'quarantine';
     let escaneos = [];
 
     setHtml(root, html`<div class="page page--wide">
-        <div class="page-head"><div><h1>Seguridad</h1><p>Todo archivo que suben los estudiantes pasa por tres barreras antes de publicarse. Aquí decides sobre lo dudoso.</p></div>
+        <div class="page-head"><div><h1>Seguridad</h1><p>Todo archivo pasa por tres barreras. Lo limpio se publica solo: aquí sólo decides sobre lo que quedó en cuarentena.</p></div>
             <div class="page-head__actions"><button class="btn btn--secondary" data-action="refresh">${icon('refresh')}Actualizar</button></div></div>
         <div data-slot="overview">${loading()}</div>
         <div class="chips" style="margin:6px 0 14px" data-slot="filters"></div>
@@ -80,12 +114,18 @@ export async function securityView(root, _params, signal) {
                     ia.security ? `${ia.security.provider}: ${ia.security.model}` : 'Sin modelo configurado', !!ia.security)}
             </div>
             <div class="stats-line" style="margin:0 0 6px">
-                <span><strong>${sc.review || 0}</strong>por revisar</span><span><strong>${sc.blocked || 0}</strong>bloqueados</span>
-                <span><strong>${sc.clean || 0}</strong>limpios</span><span><strong>${o.scan_queue}</strong>en cola</span>
-                <span><strong>${o.blocked_hashes}</strong>huellas vetadas</span>
+                <span><strong>${o.quarantine ?? 0}</strong>en cuarentena</span><span><strong>${sc.clean || 0}</strong>publicados solos</span>
+                <span><strong>${sc.pending || 0}</strong>en revisión</span><span><strong>${o.blocked_hashes}</strong>huellas vetadas</span>
                 <span><strong>${o.index?.documentos ?? 0}</strong>documentos indexados para el asistente</span>
+            </div>
+            <div class="sec-split">
+                <section class="panel"><div class="panel__head"><h2>Cuota gratuita de la IA</h2></div>
+                    <div class="panel__body">${cuotas(ia.quotas)}</div></section>
+                <section class="panel"><div class="panel__head"><h2>Archivos en el servidor</h2></div>
+                    <div class="panel__body">${disco(o.storage)}</div></section>
             </div>`);
-            setHtml($('[data-slot="filters"]', root), html`${FILTROS.map(([k, l]) => html`<button class="chip" data-filter="${k}" aria-pressed="${filtro === k}">${l}${k && sc[k] ? html` <span class="chip__n">${sc[k]}</span>` : ''}</button>`)}`);
+            const cuenta = { quarantine: o.quarantine, blocked: sc.blocked, pending: sc.pending };
+            setHtml($('[data-slot="filters"]', root), html`${FILTROS.map(([k, l]) => html`<button class="chip" data-filter="${k}" aria-pressed="${filtro === k}">${l}${cuenta[k] ? html` <span class="chip__n">${cuenta[k]}</span>` : ''}</button>`)}`);
         } catch (err) {
             setHtml($('[data-slot="overview"]', root), empty({ icon: 'alert', title: 'No se pudo cargar el resumen', text: err.message }));
         }
@@ -100,7 +140,8 @@ export async function securityView(root, _params, signal) {
                     <td style="max-width:260px;word-break:break-all;font-weight:600">${s.original_name}<div class="muted">${fileSize(s.size)}</div></td>
                     <td>${TIPO[s.kind]}</td><td>${s.user?.name || ''}</td><td>${scanBadge(s.status, { onlyIssues: false })}</td>
                     <td class="muted" style="max-width:340px">${s.summary || ''}</td><td class="muted">${timeAgo(s.created_at)}</td></tr>`)}</tbody></table>`
-                : empty({ icon: 'shield', title: filtro === 'review' ? 'Nada pendiente de revisión' : 'Sin registros', text: 'El vigilante no ha marcado archivos en esta categoría.' }));
+                : empty({ icon: 'shield', title: filtro === 'quarantine' ? 'Nada en cuarentena' : 'Sin registros',
+                    text: filtro === 'quarantine' ? 'Todo lo que se subió pasó las tres barreras y se publicó solo.' : 'El vigilante no ha marcado archivos en esta categoría.' }));
         } catch (err) {
             setHtml($('[data-slot="table"]', root), empty({ icon: 'alert', title: 'No se pudo cargar', text: err.message }));
         }
@@ -123,9 +164,9 @@ export async function securityView(root, _params, signal) {
                     await api.post(`/api/admin/scans/${s.id}/rescan`);
                     toast('Enviado de nuevo al vigilante');
                 } else {
-                    if (b.dataset.decide === 'block' && !await confirmDialog({ title: 'Bloquear archivo', text: 'Se borrará del servidor y no se podrá volver a subir.', confirmLabel: 'Bloquear' })) return;
+                    if (b.dataset.decide === 'reject' && !await confirmDialog({ title: 'Rechazar archivo', text: 'Se borrará del servidor y no se podrá volver a subir.', confirmLabel: 'Rechazar' })) return;
                     await api.post(`/api/admin/scans/${s.id}/decision`, { decision: b.dataset.decide });
-                    toast(b.dataset.decide === 'approve' ? 'Archivo aprobado y publicado' : 'Archivo bloqueado');
+                    toast(b.dataset.decide === 'approve' ? 'Archivo aprobado y publicado' : 'Archivo rechazado');
                 }
                 closeDrawer();
                 resumen();

@@ -1,7 +1,11 @@
-/** Marco de la aplicación: barra lateral, barra superior y notificaciones. */
+/**
+ * Marco de la aplicación: barra lateral, notificaciones y, en el celular,
+ * barra superior con el menú y barra inferior con las cinco secciones.
+ */
 
 import { api } from '../core/api.js';
 import { $, html, on, setHtml, timeAgo } from '../core/dom.js';
+import { prefs } from '../core/prefs.js';
 import { go } from '../core/router.js';
 import { store } from '../core/store.js';
 import { avatar, countBadge, empty } from '../ui/components.js';
@@ -15,6 +19,12 @@ const NAV = [
     { path: '/grupos', label: 'Grupos', icon: 'users', badge: (p) => p.groups_unread_total },
     { path: '/anotaciones', label: 'Mi espacio', icon: 'note' },
 ];
+
+/** Barra inferior del celular: las mismas secciones, al alcance del pulgar. */
+function tabbarHtml(pulse, activePath) {
+    return html`${NAV.map((it) => html`<a class="tabbar__item" href="#${it.path}" data-path="${it.path}"
+        ${activePath.startsWith(it.path) ? html`aria-current="page"` : ''}>${icon(it.icon)}<span>${it.label}</span>${countBadge(it.badge ? it.badge(pulse) : 0)}</a>`)}`;
+}
 
 const NOTIF_ICON = {
     contact_request: ['userPlus', ''], contact_accepted: ['userCheck', 'ok'], message: ['chat', ''],
@@ -71,10 +81,10 @@ export function renderShell(root, { onLogout }) {
                     <button class="theme-switch" type="button" data-action="theme" role="switch" aria-checked="false" aria-label="Modo oscuro">
                         <span class="theme-switch__track"><span class="theme-switch__thumb">${icon('sun')}</span></span><span>Modo oscuro</span></button>
                     <div class="bell-wrap">
-                        <button class="icon-btn" data-action="toggle-notifs" aria-label="Notificaciones" aria-haspopup="true" id="bell">${icon('bell')}</button>
-                        <div id="notif-slot"></div>
+                        <button class="icon-btn" data-action="toggle-notifs" data-bell aria-label="Notificaciones" aria-haspopup="true">${icon('bell')}</button>
                     </div>
                 </div>
+                <button class="nav__item" data-action="install" type="button" hidden>${icon('download')}<span>Instalar app</span></button>
                 <a class="me" href="#/perfil" id="me">${avatar({ ...user, online: true })}
                     <span style="min-width:0"><span class="me__name">${user.name}</span><br><span class="me__meta">${user.career || 'Completa tu perfil'}</span></span></a>
                 <button class="nav__item" data-action="logout" type="button">${icon('logout')}<span>Cerrar sesión</span></button>
@@ -84,10 +94,13 @@ export function renderShell(root, { onLogout }) {
         <div class="main">
             <header class="topbar" id="topbar">
                 <button class="icon-btn topbar__menu" data-action="open-nav" aria-label="Abrir menú">${icon('menu')}</button>
-
+                <a class="topbar__brand" href="#/inicio" aria-label="Ir al inicio"><img src="img/logo_hub.png" alt="UFG Knowledge Hub"></a>
+                <button class="icon-btn topbar__bell" data-action="toggle-notifs" data-bell aria-label="Notificaciones" aria-haspopup="true">${icon('bell')}</button>
             </header>
             <div id="view"></div>
         </div>
+        <nav class="tabbar" id="tabbar" aria-label="Secciones">${tabbarHtml(store.pulse, '/inicio')}</nav>
+        <div id="notif-slot"></div>
     </div>`);
 
     const app = $('#app', root);
@@ -98,21 +111,37 @@ export function renderShell(root, { onLogout }) {
 
     on(app, 'click', '[data-action="logout"]', () => onLogout());
     const pintarTema = () => {
-        const oscuro = document.documentElement.dataset.theme === 'dark';
+        const oscuro = prefs.isDark();
         const sw = $('[data-action="theme"]', root);
         sw.setAttribute('aria-checked', String(oscuro));
         setHtml(sw.querySelector('.theme-switch__thumb'), icon(oscuro ? 'moon' : 'sun'));
     };
-    on(app, 'click', '[data-action="theme"]', () => {
-        const oscuro = document.documentElement.dataset.theme !== 'dark';
-        document.documentElement.dataset.theme = oscuro ? 'dark' : 'light';
-        try { localStorage.setItem('theme', oscuro ? 'dark' : 'light'); } catch { /* modo privado */ }
+    on(app, 'click', '[data-action="theme"]', async () => {
+        await prefs.set({ theme: prefs.isDark() ? 'light' : 'dark' });
         pintarTema();
     });
+    store.on('prefs', pintarTema, signal);
     pintarTema();
+
+    // «Instalar app» aparece sólo cuando el navegador lo permite (Chrome, Edge).
+    const instalar = $('[data-action="install"]', root);
+    const pintarInstalar = () => { instalar.hidden = !store.installPrompt; };
+    store.on('install', pintarInstalar, signal);
+    pintarInstalar();
+    on(app, 'click', '[data-action="install"]', async () => {
+        const aviso = store.installPrompt;
+        if (!aviso) return;
+        aviso.prompt();
+        await aviso.userChoice.catch(() => null);
+        store.installPrompt = null;
+        pintarInstalar();
+    });
     on(app, 'click', '[data-action="open-nav"]', () => app.classList.add('nav-open'));
     on(app, 'click', '[data-action="close-nav"]', () => app.classList.remove('nav-open'));
     on(app, 'click', '.nav__item[href], .me', () => app.classList.remove('nav-open'));
+    // El menú del celular también se cierra al cambiar de sección o con Escape.
+    window.addEventListener('hashchange', () => app.classList.remove('nav-open'), { signal });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') app.classList.remove('nav-open'); }, { signal });
 
     const pintarPliegue = () => {
         const plegado = app.classList.contains('is-folded');
@@ -175,18 +204,21 @@ export function renderShell(root, { onLogout }) {
         if (destino) go(destino);
     });
     document.addEventListener('click', (e) => {
-        if (abierto && !e.target.closest('.notif-panel') && !e.target.closest('#bell')) cerrarNotifs();
+        if (abierto && !e.target.closest('.notif-panel') && !e.target.closest('[data-bell]')) cerrarNotifs();
     }, { signal });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && abierto) cerrarNotifs(); }, { signal });
 
     // Contadores al ritmo del pulso.
     store.on('pulse', ({ pulse, previo }) => {
         const activo = $('#nav [aria-current="page"]', root)?.dataset.path || '';
         setHtml($('#nav', root), navHtml(store.user, pulse, activo));
-        const bell = $('#bell', root);
-        bell.querySelector('.badge-dot')?.remove();
-        if (pulse.notifications_unread > 0) {
-            bell.insertAdjacentHTML('beforeend', `<span class="badge-dot">${Math.min(pulse.notifications_unread, 99)}</span>`);
-        }
+        setHtml($('#tabbar', root), tabbarHtml(pulse, activo));
+        root.querySelectorAll('[data-bell]').forEach((bell) => {
+            bell.querySelector('.badge-dot')?.remove();
+            if (pulse.notifications_unread > 0) {
+                bell.insertAdjacentHTML('beforeend', `<span class="badge-dot">${Math.min(pulse.notifications_unread, 99)}</span>`);
+            }
+        });
         if (previo && pulse.notifications_unread > previo.notifications_unread && previo.server_time) {
             toast('Tienes una notificación nueva', 'info', 2600);
         }
@@ -205,9 +237,7 @@ function actualizarTitulo(pulse) {
 }
 
 export function setActiveNav(path) {
-    const nav = document.getElementById('nav');
-    if (!nav) return;
-    nav.querySelectorAll('.nav__item').forEach((a) => {
+    document.querySelectorAll('#nav .nav__item[data-path], #tabbar .tabbar__item').forEach((a) => {
         if (path.startsWith(a.dataset.path)) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     });

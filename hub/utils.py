@@ -8,8 +8,9 @@ from collections import defaultdict, deque
 from functools import wraps
 from typing import Any, Callable
 
-from flask import g, request
+from flask import current_app, g, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from .errors import ApiError
 from .extensions import db
@@ -34,11 +35,46 @@ def current_user() -> User:
     return g.current_user
 
 
+DOWNLOAD_LINK_SECONDS = 300
+
+
+def _download_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(current_app.config['JWT_SECRET_KEY'], salt='enlace-descarga')
+
+
+def make_download_token(user_id: int, path: str) -> str:
+    """Token para un enlace de descarga: sólo vale para `path`, por GET y unos minutos."""
+    return _download_serializer().dumps({'u': user_id, 'p': path})
+
+
+def _download_link_user() -> bool:
+    """Si la petición trae ?dl=<token> válido para esta ruta, la atiende como su dueño."""
+    token = request.args.get('dl')
+    if not token or request.method != 'GET':
+        return False
+    try:
+        datos = _download_serializer().loads(token, max_age=DOWNLOAD_LINK_SECONDS)
+    except BadSignature:
+        raise ApiError('El enlace caducó. Vuelve a pulsar Descargar en la app.', 403, 'link_expired')
+    if datos.get('p') != request.path:
+        raise ApiError('Este enlace no corresponde a este archivo.', 403, 'link_invalid')
+    user = db.session.get(User, int(datos.get('u') or 0))
+    if user is None:
+        raise ApiError('Tu cuenta ya no existe.', 403, 'user_not_found')
+    g.current_user = user
+    return True
+
+
 def login_required(fn: Callable) -> Callable:
-    """Igual que @jwt_required() pero además carga el usuario."""
+    """Igual que @jwt_required() pero además carga el usuario.
+
+    En las rutas de archivos también se acepta un enlace firmado (?dl=...),
+    ver hub/api/files.py.
+    """
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        verify_jwt_in_request()
+        if not _download_link_user():
+            verify_jwt_in_request()
         current_user()
         return fn(*args, **kwargs)
     return wrapper

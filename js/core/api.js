@@ -18,9 +18,12 @@ export class ApiError extends Error {
 }
 
 let onUnauthorized = () => {};
+// Copia en memoria por si el navegador no deja usar localStorage (algunas web
+// views de WhatsApp o Instagram, o el modo privado de Safari).
+let tokenEnMemoria = null;
 
 function token() {
-    try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+    try { return localStorage.getItem(TOKEN_KEY) || tokenEnMemoria; } catch { return tokenEnMemoria; }
 }
 
 function headers(extra = {}) {
@@ -63,8 +66,8 @@ export const api = {
     ApiError,
     setUnauthorizedHandler(fn) { onUnauthorized = fn; },
     hasToken: () => !!token(),
-    setToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch { /* modo privado */ } },
-    clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch { /* modo privado */ } },
+    setToken(t) { tokenEnMemoria = t; try { localStorage.setItem(TOKEN_KEY, t); } catch { /* modo privado */ } },
+    clearToken() { tokenEnMemoria = null; try { localStorage.removeItem(TOKEN_KEY); } catch { /* modo privado */ } },
     authHeaders: () => headers(),
 
     get: (path) => request(path),
@@ -88,16 +91,25 @@ export const api = {
         return response.blob();
     },
 
+    /** Enlace firmado de unos minutos para abrir o bajar un archivo sin cabeceras (ver hub/api/files.py). */
+    async link(path) {
+        return (await request('/api/files/link', { method: 'POST', body: { path } })).url;
+    },
+
+    /**
+     * Descarga con un enlace normal en vez de un «blob»: así funciona también
+     * dentro de las web views del celular, que pasan el archivo al gestor de
+     * descargas del teléfono.
+     */
     async download(path, filename) {
-        const blob = await this.blob(path);
-        const url = URL.createObjectURL(blob);
+        const url = await this.link(path.includes('?') ? path : `${path}?download=1`);
         const a = document.createElement('a');
         a.href = url;
-        a.download = filename || 'archivo';
+        a.download = filename || '';
+        a.rel = 'noopener';
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
     },
 
     /** POST con respuesta NDJSON (streaming del asistente). */

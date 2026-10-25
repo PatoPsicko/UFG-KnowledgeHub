@@ -3,6 +3,10 @@
  *   - Inicio: en la columna derecha, donde antes estaba el chat global.
  *   - #/asistente: a página completa, con el historial de conversaciones.
  * Ambos comparten la conversación en curso.
+ *
+ * La «luz» del escritorio (ver css: «Luces del asistente») sigue su estado en
+ * data-state: idle, thinking (esperando la primera palabra o en cola) y
+ * streaming (escribiendo). Con animaciones reducidas queda un borde fijo.
  */
 
 import { api } from '../core/api.js';
@@ -12,7 +16,7 @@ import { go } from '../core/router.js';
 import { store } from '../core/store.js';
 import { bindFilter, empty, searchToggle } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
-import { confirmDialog, openDialog, toast } from '../ui/overlay.js';
+import { closeDrawer, confirmDialog, openDialog, openDrawer, toast } from '../ui/overlay.js';
 
 const sesion = {
     conversationId: null,
@@ -27,7 +31,7 @@ const SUGERENCIAS = [
     'Hazme 3 preguntas de repaso de cálculo',
 ];
 
-const ORIGEN = { public: 'Biblioteca', private_note: 'Tus anotaciones', private_file: 'Tus anotaciones', group: 'Grupo' };
+const ORIGEN = { public: 'Biblioteca', private_note: 'Mi espacio', private_file: 'Mi espacio', group: 'Grupo' };
 
 export function askAboutDocument(docKey, title) {
     sesion.docScope = { key: docKey, title };
@@ -64,13 +68,21 @@ function turnHtml(t, i) {
         return html`<div class="turn turn--bot turn--error"><div class="turn__bubble">${icon('alert')} ${t.content}</div></div>`;
     }
     const nums = (t.sources || []).map((s) => s.n);
-    const cuerpo = t.pending && !t.content
-        ? raw('<span class="typing" aria-label="Escribiendo"><i></i><i></i><i></i></span>')
-        : raw(renderMarkdown(t.content, nums));
+    let cuerpo;
+    if (t.pending && !t.content && t.queue) {
+        cuerpo = html`<span class="queue-pill" role="status">${icon('clock')}En cola: unos ${t.queue} s</span>
+            <span class="queue-note">Hay muchas preguntas a la vez. La tuya sale en cuanto la IA gratuita tenga cupo.</span>`;
+    } else if (t.pending && !t.content) {
+        cuerpo = raw('<span class="typing" role="status" aria-label="Pensando"><i></i><i></i><i></i></span>');
+    } else {
+        cuerpo = raw(renderMarkdown(t.content, nums));
+    }
     const fuentes = t.pending ? [] : (t.sources || []);
     const docs = t.pending ? [] : (t.documents || []);
     return html`<div class="turn turn--bot" data-turn="${i}">
         <div class="turn__bubble md ${t.pending && t.content ? 'caret' : ''}">${cuerpo}</div>
+        ${!t.pending && (t.cached || t.degraded) ? html`<span class="turn__meta">${t.degraded ? 'Sin IA por ahora: sólo la búsqueda'
+            : 'Respuesta repetida: se mostró la guardada'}</span>` : ''}
         ${fuentes.length ? html`<div class="sources"><span class="sources__label">Fuentes</span>
             ${fuentes.map((s) => html`<button type="button" class="source" data-turn="${i}" data-n="${s.n}">
                 <span class="source__n">${s.n}</span>
@@ -121,7 +133,8 @@ async function abrirFuente(item) {
  * empezar de nuevo desde fuera (la usa la página completa).
  */
 export function mountAssistant(container, { compact = false, signal, onChange } = {}) {
-    setHtml(container, html`<section class="desk" aria-label="Asistente de estudio">
+    setHtml(container, html`<section class="desk" data-state="idle" aria-label="Asistente de estudio">
+        <span class="desk__aura" aria-hidden="true"></span>
         <div class="desk__head">
             <span class="desk__mark">${icon('bulb')}</span>
             <div style="min-width:0;flex:1"><div class="desk__title">Asistente de estudio</div>
@@ -134,17 +147,19 @@ export function mountAssistant(container, { compact = false, signal, onChange } 
         <div class="desk__suggest" data-slot="suggest"></div>
         <form class="desk__form" data-slot="form">
             <label class="sr-only" for="ai-input">Escribe tu pregunta</label>
-            <textarea class="desk__input" id="ai-input" name="q" rows="1" maxlength="2000"
-                placeholder="Pregunta sobre tus materias…"></textarea>
+            <div class="desk__field"><textarea class="desk__input" id="ai-input" name="q" rows="1" maxlength="2000"
+                placeholder="Pregunta sobre tus materias…" enterkeyhint="send"></textarea></div>
             <button class="desk__send" type="submit" aria-label="Enviar pregunta">${icon('send')}</button>
         </form>
         <p class="desk__note">Las respuestas pueden tener errores: revisa las fuentes antes de usarlas en un trabajo.</p>
     </section>`);
 
+    const desk = $('.desk', container);
     const log = $('[data-slot="log"]', container);
     const form = $('[data-slot="form"]', container);
     const input = form.q;
     let enCurso = null;
+    const estadoLuz = (estado) => { desk.dataset.state = estado; };
 
     function pintar({ scroll = true } = {}) {
         const scope = sesion.docScope;
@@ -176,6 +191,7 @@ export function mountAssistant(container, { compact = false, signal, onChange } 
         sesion.turns.push(turno);
         pintar();
         form.querySelector('button').disabled = true;
+        estadoLuz('thinking');
         enCurso = new AbortController();
         let pendientePintar = false;
         const programar = () => {
@@ -187,12 +203,21 @@ export function mountAssistant(container, { compact = false, signal, onChange } 
             await api.stream('/api/ai/chat/stream', {
                 question: pregunta, conversation_id: sesion.conversationId, doc_key: sesion.docScope?.key,
             }, (ev) => {
-                if (ev.type === 'token') { turno.content += ev.content; programar(); }
-                else if (ev.type === 'model') { turno.model = ev.model; }
+                if (ev.type === 'token') {
+                    turno.content += ev.content;
+                    turno.queue = null;
+                    estadoLuz('streaming');
+                    programar();
+                } else if (ev.type === 'queue') {
+                    turno.queue = ev.seconds;
+                    programar();
+                } else if (ev.type === 'model') { turno.model = ev.model; }
                 else if (ev.type === 'done') {
                     turno.pending = false;
                     turno.sources = ev.sources || [];
                     turno.documents = ev.documents || [];
+                    turno.cached = ev.cached;
+                    turno.degraded = ev.degraded;
                     sesion.conversationId = ev.conversation_id || sesion.conversationId;
                 } else if (ev.type === 'error') {
                     turno.pending = false;
@@ -208,6 +233,7 @@ export function mountAssistant(container, { compact = false, signal, onChange } 
             turno.content = err.message;
         } finally {
             enCurso = null;
+            estadoLuz('idle');
             form.querySelector('button').disabled = false;
             pintarUltimo();
             onChange?.();
@@ -258,6 +284,7 @@ export function mountAssistant(container, { compact = false, signal, onChange } 
 export async function assistantView(root, _params, signal) {
     setHtml(root, html`<div class="page page--wide page--flush">
         <div class="assistant-page">
+            <button class="btn btn--secondary btn--sm history-mobile" data-action="history-mobile">${icon('history')}Historial</button>
             <aside class="history">
                 <div class="history__bar"><button class="btn btn--secondary" data-action="new-conv">${icon('plus')}Nueva conversación</button>${searchToggle('Buscar en tus chats')}</div>
                 <div class="history__list" data-slot="history"></div>
@@ -267,20 +294,38 @@ export async function assistantView(root, _params, signal) {
     </div>`);
 
     const lista = $('[data-slot="history"]', root);
-    async function cargarHistorial() {
+    async function cargarHistorial(destino = lista) {
         try {
             const { conversations } = await api.get('/api/ai/conversations');
-            setHtml(lista, conversations.length ? html`${conversations.map((c) => html`
+            setHtml(destino, conversations.length ? html`${conversations.map((c) => html`
                 <button class="history__item" data-id="${c.id}" aria-current="${c.id === sesion.conversationId}">
                     ${icon('history')}<span title="${c.title}">${c.title}</span>
                     <span class="icon-btn icon-btn--sm" role="button" data-delete="${c.id}" aria-label="Eliminar conversación">${icon('trash')}</span>
                 </button>`)}` : html`<p style="color:var(--ink-3);font-size:14px;padding:10px">Tus conversaciones aparecerán aquí.</p>`);
         } catch {
-            setHtml(lista, empty({ icon: 'history', title: 'No se pudo cargar el historial' }));
+            setHtml(destino, empty({ icon: 'history', title: 'No se pudo cargar el historial' }));
         }
     }
 
-    const desk = mountAssistant($('[data-slot="desk"]', root), { signal, onChange: cargarHistorial });
+    const desk = mountAssistant($('[data-slot="desk"]', root), { signal, onChange: () => cargarHistorial() });
+
+    // En el celular la columna del historial no cabe: se abre en un panel.
+    on(root, 'click', '[data-action="history-mobile"]', () => {
+        const panel = openDrawer(html`<div class="drawer__head"><h2 style="flex:1;font-size:19px">Tus conversaciones</h2>
+            <button class="icon-btn" data-close aria-label="Cerrar">${icon('x')}</button></div>
+            <div class="drawer__body"><button class="btn btn--secondary btn--block" data-new>${icon('plus')}Nueva conversación</button>
+            <div class="history__list" data-slot="history-m"></div></div>`);
+        const destino = panel.querySelector('[data-slot="history-m"]');
+        cargarHistorial(destino);
+        panel.querySelector('[data-close]').addEventListener('click', closeDrawer);
+        panel.querySelector('[data-new]').addEventListener('click', () => { closeDrawer(); sesion.docScope = null; desk.reiniciar(); });
+        destino.addEventListener('click', (e) => {
+            const item = e.target.closest('.history__item');
+            if (!item || e.target.closest('[data-delete]')) return;
+            closeDrawer();
+            abrirConversacion(item.dataset.id);
+        });
+    }, signal);
 
     bindFilter(root, '[data-slot="history"]', '.history__item', signal);
     on(root, 'click', '[data-action="new-conv"]', () => { sesion.docScope = null; desk.reiniciar(); }, signal);
@@ -291,9 +336,11 @@ export async function assistantView(root, _params, signal) {
         if (sesion.conversationId === b.dataset.delete) desk.reiniciar();
         cargarHistorial();
     }, signal);
-    on(lista, 'click', '.history__item', async (_e, b) => {
+    on(lista, 'click', '.history__item', (_e, b) => abrirConversacion(b.dataset.id), signal);
+
+    async function abrirConversacion(convId) {
         try {
-            const { messages, conversation_id: id } = await api.get(`/api/ai/history?conversation_id=${encodeURIComponent(b.dataset.id)}`);
+            const { messages, conversation_id: id } = await api.get(`/api/ai/history?conversation_id=${encodeURIComponent(convId)}`);
             sesion.conversationId = id;
             sesion.docScope = null;
             sesion.turns = messages.map((m) => ({ role: m.role, content: m.content, sources: m.sources || [], documents: m.documents || [], model: m.model }));
@@ -302,7 +349,7 @@ export async function assistantView(root, _params, signal) {
         } catch (err) {
             toast(err.message, 'error');
         }
-    }, signal);
+    }
 
     cargarHistorial();
 }

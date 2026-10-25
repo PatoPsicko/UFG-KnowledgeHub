@@ -24,7 +24,9 @@ function inline(text, validCites) {
 
 export function renderMarkdown(source = '', citeNumbers = []) {
     const validCites = new Set(citeNumbers);
-    const escaped = escapeHtml(source.replace(/\r\n/g, '\n'));
+    // gpt-oss a veces cita a su manera («【2】» o «【2†L1-L4】»): se lleva a [2].
+    const normal = source.replace(/\r\n/g, '\n').replace(/【(\d{1,2})(?:†[^】]*)?】/g, '[$1]');
+    const escaped = escapeHtml(normal);
     const out = [];
     const blocks = escaped.split(/```/);
 

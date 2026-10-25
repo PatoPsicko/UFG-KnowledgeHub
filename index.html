@@ -2,19 +2,32 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Biblioteca, grupos de trabajo y asistente de estudio de la Universidad Francisco Gavidia.">
-    <meta name="theme-color" content="#0B2545">
+    <meta name="theme-color" content="#0B2545" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="UFG Hub">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>UFG Knowledge Hub</title>
-    <link rel="icon" type="image/png" href="img/logo_hub.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="32x32" href="img/icons/favicon-32.png">
+    <link rel="apple-touch-icon" href="img/icons/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
+    <!-- Pantalla de entrada: se pinta antes de que cargue el JavaScript y
+         main.js la retira cuando la app está lista (ver css: «Splash»). -->
+    <div class="splash" id="splash" aria-hidden="true">
+        <img class="splash__logo" src="img/logo_hub.png" alt="">
+        <span class="splash__light"></span>
+    </div>
     <div id="app-root">
-        <div class="boot" aria-busy="true"><div class="spinner" role="status" aria-label="Cargando"></div></div>
+        <div class="boot" aria-busy="true"><span class="sr-only" role="status">Cargando UFG Knowledge Hub</span></div>
     </div>
     <noscript><p style="padding:24px">UFG Knowledge Hub necesita JavaScript activado.</p></noscript>
     <script type="module" src="js/main.js"></script>

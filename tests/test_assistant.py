@@ -53,6 +53,11 @@ def test_general_fallback_when_no_material(make_user):
     assert datos['sources'] == []
 
 
+def test_gpt_oss_citations_are_normalized():
+    from hub.ai.assistant import normalizar_citas
+    assert normalizar_citas('La 3FN [1] y la 2FN 【2】 o 【3†L4-L9】.') == 'La 3FN [1] y la 2FN [2] o [3].'
+
+
 def test_off_topic_is_refused(make_user):
     from hub.ai.assistant import FUERA_DE_TEMA
     ana = make_user('Ana')
