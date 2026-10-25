@@ -262,6 +262,8 @@ def _run(trabajo: dict) -> None:
             partes.append(f"IA: {ia['model']}")
         if sin_ia:
             partes.append('sin revisión IA (no estuvo disponible)')
+        if ia and ia.get('verdict') == 'skipped':
+            partes.append('imagen sin revisión IA (no hay modelo con visión)')
         resumen = ' · '.join(partes)
 
     _apply(scan, objetivo, estado, resumen[:500], legacy=trabajo.get('legacy', False),

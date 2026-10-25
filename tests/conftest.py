@@ -59,7 +59,10 @@ class FakeRouter(llm.Router):
             vectores.append([x / norma for x in v])
         return vectores
 
-    def chat(self, messages, *, purpose='chat', temperature=0.2, max_tokens=None, json_mode=False):
+    def wait_time(self, purpose='chat', need=0):
+        return 0.0
+
+    def chat(self, messages, *, purpose='chat', temperature=0.2, max_tokens=None, json_mode=False, wait=0):
         if purpose in ('security', 'vision'):
             if self.fail_security:
                 raise llm.LLMError('sin cuota')
@@ -78,6 +81,8 @@ class FakeRouter(llm.Router):
         return llm.ChatResult('Respuesta general.', 'fake', 'fake-model')
 
     def chat_stream(self, messages, *, temperature=0.2, max_tokens=None, meta=None):
+        if self.fail_chat:
+            raise llm.LLMError('sin cuota')
         resultado = self.chat(messages)
         if meta is not None:
             meta.update(provider='fake', model='fake-model', label='Fake')
@@ -101,6 +106,7 @@ def app(tmp_path, fake_router):
     for limiter in (auth.login_limiter, auth.login_ip_limiter, auth.register_limiter, auth.resend_limiter,
                     chat.flood_limiter, assistant.limiter):
         limiter.reset()
+    assistant.cache_clear()
     app = create_app({
         'DATABASE_PATH': str(tmp_path / 'test.db'),
         'UPLOAD_FOLDER': str(tmp_path / 'uploads'),

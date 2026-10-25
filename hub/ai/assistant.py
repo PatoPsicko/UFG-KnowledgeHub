@@ -8,14 +8,25 @@ Flujo de una pregunta:
 4. Prompt con extractos numerados [1], [2]... y el catálogo.
 5. El router de modelos responde (Gemini, Groq u Ollama, según disponibilidad).
 6. Se guardan pregunta, respuesta, fuentes citadas y modelo que respondió.
+
+Con 20 personas a la vez y cuotas gratuitas:
+* Las preguntas esperan en cola (con aviso en pantalla) mientras ningún modelo
+  tiene cupo, como mucho AI_QUEUE_TIMEOUT segundos.
+* Una misma pregunta con los mismos extractos se responde desde una caché de
+  AI_CACHE_MINUTES minutos: en una demostración todos preguntan lo mismo.
+* Si la cuota se agota del todo, el estudiante recibe igualmente los
+  documentos que encontró la búsqueda (respuesta_sin_ia) en lugar de un error.
 """
 
 from __future__ import annotations
 
+import hashlib
 import random
 import re
 import threading
+import time
 import unicodedata
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from ..config import env_int
@@ -26,7 +37,10 @@ from . import index, llm
 AI_RATE_LIMIT = env_int('AI_RATE_LIMIT', 12)          # preguntas por usuario y minuto
 AI_MAX_CONCURRENT = env_int('AI_MAX_CONCURRENT', 6)   # generaciones simultáneas
 AI_QUEUE_TIMEOUT = env_int('AI_QUEUE_TIMEOUT', 90)    # segundos de espera en cola
-AI_HISTORY_TURNS = 6
+AI_HISTORY_TURNS = env_int('AI_HISTORY_TURNS', 4)  # turnos previos que se reenvían al modelo
+AI_HISTORY_CHARS = 700                            # cada respuesta previa se recorta a esto
+AI_MAX_TOKENS = env_int('AI_MAX_TOKENS', 1200)    # tope de la respuesta (cuenta en la cuota)
+AI_CACHE_MINUTES = env_int('AI_CACHE_MINUTES', 15)
 AI_MAX_QUESTION_LENGTH = 2000
 
 limiter = SlidingWindowLimiter(AI_RATE_LIMIT)
@@ -170,14 +184,20 @@ def _bloque_extractos(fragmentos: list[dict]) -> str:
     return '\n\n'.join(partes)
 
 
+def _historial(ctx: Contexto) -> list[dict]:
+    """Turnos previos; las respuestas largas se recortan para ahorrar tokens de la cuota."""
+    return [{'role': r, 'content': t if r == 'user' or len(t) <= AI_HISTORY_CHARS else t[:AI_HISTORY_CHARS] + '…'}
+            for r, t in ctx.historial]
+
+
 def build_messages(ctx: Contexto) -> list[dict]:
     if not ctx.fragmentos and not ctx.catalogo:
         mensajes = [{'role': 'system', 'content': SYSTEM_PROMPT_GENERAL}]
-        mensajes += [{'role': r, 'content': t} for r, t in ctx.historial]
+        mensajes += _historial(ctx)
         mensajes.append({'role': 'user', 'content': ctx.question})
         return mensajes
     mensajes = [{'role': 'system', 'content': SYSTEM_PROMPT}]
-    mensajes += [{'role': r, 'content': t} for r, t in ctx.historial]
+    mensajes += _historial(ctx)
     mensajes.append({'role': 'user', 'content':
                      f'{_bloque_catalogo(ctx.catalogo)}\n\n{_bloque_extractos(ctx.fragmentos)}\n\n'
                      f'PREGUNTA: {ctx.question}'})
@@ -257,22 +277,105 @@ def fuentes_citadas(ctx: Contexto, respuesta: str) -> tuple[list[dict], list[dic
     return citadas, documentos
 
 
+# --- Caché de respuestas ------------------------------------------------------
+_cache: OrderedDict[str, tuple[float, str, dict]] = OrderedDict()
+_cache_lock = threading.Lock()
+CACHE_MAX = 300
+
+
+def _clave_cache(ctx: Contexto) -> str | None:
+    """Sólo preguntas sin conversación previa: la respuesta depende de la pregunta y los extractos."""
+    if ctx.historial or ctx.respuesta_directa or AI_CACHE_MINUTES <= 0:
+        return None
+    normal = re.sub(r'\W+', ' ', unicodedata.normalize('NFKD', ctx.question.lower())).strip()
+    partes = [normal, ctx.doc_key or '']
+    partes += [f"{f['doc_key']}:{hashlib.sha1(f['text'].encode()).hexdigest()[:10]}" for f in ctx.fragmentos]
+    partes += [d['doc_key'] for d in ctx.catalogo]
+    return hashlib.sha256('|'.join(partes).encode()).hexdigest()
+
+
+def cache_get(ctx: Contexto) -> tuple[str, dict] | None:
+    clave = _clave_cache(ctx)
+    if not clave:
+        return None
+    with _cache_lock:
+        dato = _cache.get(clave)
+        if not dato or dato[0] < time.monotonic():
+            _cache.pop(clave, None)
+            return None
+        _cache.move_to_end(clave)
+        return dato[1], {**dato[2], 'cached': True}
+
+
+def cache_put(ctx: Contexto, texto: str, meta: dict) -> None:
+    clave = _clave_cache(ctx)
+    if not clave or not texto or not meta.get('provider'):
+        return
+    with _cache_lock:
+        _cache[clave] = (time.monotonic() + AI_CACHE_MINUTES * 60, texto, dict(meta))
+        while len(_cache) > CACHE_MAX:
+            _cache.popitem(last=False)
+
+
+def cache_clear() -> None:
+    with _cache_lock:
+        _cache.clear()
+
+
+# --- Respuesta sin IA -----------------------------------------------------------
+def respuesta_sin_ia(ctx: Contexto, espera: float | None = None) -> str | None:
+    """Cuando la cuota gratuita se agota: los documentos encontrados, sin redactar.
+
+    Devuelve None si la búsqueda no encontró nada (entonces se muestra un error).
+    """
+    titulos: list[tuple[str, str]] = []
+    for item in [*ctx.fragmentos, *ctx.catalogo]:
+        par = (item['title'], item['origin'])
+        if par not in titulos:
+            titulos.append(par)
+    if not titulos:
+        return None
+    cuando = (f' Vuelve a preguntar en unos {max(1, round(espera / 60))} min para una explicación completa.'
+              if espera else ' Vuelve a preguntar en unos minutos para una explicación completa.')
+    lineas = ['⏳ La IA gratuita está al máximo de su uso en este momento, así que no puedo redactarte '
+              'la respuesta.' + cuando, '', 'Mientras tanto, estos son los documentos que encontré sobre tu pregunta:']
+    lineas += [f'- **{t}** ({o})' for t, o in titulos[:6]]
+    lineas += ['', 'Ábrelos desde las fuentes de abajo 📄']
+    return '\n'.join(lineas)
+
+
+def ajustar_respuesta(ctx: Contexto, texto: str) -> str:
+    """Cambia el marcador de «fuera de tema» y añade el aviso de conocimiento general."""
+    if MARCADOR_FUERA in texto[:40]:
+        return fuera_de_tema()
+    if not ctx.fragmentos and not ctx.catalogo and not texto.startswith(AVISO_GENERAL[:20]):
+        texto = f'{AVISO_GENERAL}\n\n{texto}'
+    return texto
+
+
 def generar(ctx: Contexto) -> tuple[str, dict]:
     """Respuesta completa. Devuelve (texto, meta con proveedor y modelo)."""
     if ctx.respuesta_directa:
         return ctx.respuesta_directa, {'provider': None, 'model': None}
+    guardada = cache_get(ctx)
+    if guardada:
+        return guardada
+    inicio = time.monotonic()
     if not cola_modelo.acquire(timeout=AI_QUEUE_TIMEOUT):
         raise ApiError('El asistente está atendiendo muchas preguntas. Inténtalo en un momento.', 503, 'busy')
     try:
-        resultado = llm.router().chat(build_messages(ctx), temperature=0.2)
+        restante = max(0.0, AI_QUEUE_TIMEOUT - (time.monotonic() - inicio))
+        resultado = llm.router().chat(build_messages(ctx), temperature=0.2, max_tokens=AI_MAX_TOKENS, wait=restante)
     except llm.LLMError as exc:
+        espera = exc.retry_after if isinstance(exc, llm.CapacityError) else None
+        alterna = respuesta_sin_ia(ctx, espera)
+        if alterna:
+            return alterna, {'provider': None, 'model': None, 'degraded': True}
         raise ApiError('El modelo de IA no está respondiendo en este momento. Inténtalo más tarde.', 503,
                        'llm_unavailable') from exc
     finally:
         cola_modelo.release()
-    texto = resultado.text
-    if MARCADOR_FUERA in texto[:40]:
-        return fuera_de_tema(), {'provider': resultado.provider, 'model': resultado.model}
-    if not ctx.fragmentos and not ctx.catalogo and not texto.startswith(AVISO_GENERAL[:20]):
-        texto = f'{AVISO_GENERAL}\n\n{texto}'
-    return texto, {'provider': resultado.provider, 'model': resultado.model}
+    meta = {'provider': resultado.provider, 'model': resultado.model}
+    texto = ajustar_respuesta(ctx, resultado.text)
+    cache_put(ctx, texto, meta)
+    return texto, meta

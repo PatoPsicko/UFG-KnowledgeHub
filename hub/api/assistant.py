@@ -90,12 +90,109 @@ def chat():
     t0 = time.perf_counter()
     respuesta, meta = assistant.generar(ctx)
     sources, documents = assistant.fuentes_citadas(ctx, respuesta)
+    if meta.get('degraded'):
+        sources, documents = ctx.sources, ctx.documents
     modelo = f"{meta['provider']}/{meta['model']}" if meta.get('provider') else None
     conv_id = _guardar(user_id, conv, ctx, respuesta, sources, documents, modelo)
     tiempos = {**ctx.info.get('tiempos_ms', {}), 'generacion': round((time.perf_counter() - t0) * 1000)}
     current_app.logger.info('Asistente: modo=%s modelo=%s tiempos=%s', ctx.info.get('modo'), modelo, tiempos)
     return jsonify({'answer': respuesta, 'conversation_id': conv_id, 'sources': sources, 'documents': documents,
-                    'model': modelo, 'search_mode': ctx.info.get('modo'), 'timings_ms': tiempos}), 200
+                    'model': modelo, 'search_mode': ctx.info.get('modo'), 'timings_ms': tiempos,
+                    'cached': bool(meta.get('cached')), 'degraded': bool(meta.get('degraded'))}), 200
+
+
+def _linea(obj: dict) -> str:
+    return json.dumps(obj, ensure_ascii=False) + '\n'
+
+
+def _emitir(ctx: assistant.Contexto, partes: list[str], meta: dict):
+    """Pasa los trozos del modelo al navegador.
+
+    Los primeros caracteres se retienen para detectar el marcador de «fuera de
+    tema» antes de mostrar nada al estudiante. Lanza CapacityError si ningún
+    modelo tuvo cupo (antes del primer trozo) o LLMError si falló.
+    """
+    general = not ctx.fragmentos and not ctx.catalogo
+    retenido = ''
+    decidido = False
+    modelo_avisado = False
+    for trozo in llm.router().chat_stream(assistant.build_messages(ctx), temperature=0.2,
+                                          max_tokens=assistant.AI_MAX_TOKENS, meta=meta):
+        if not modelo_avisado and meta:
+            modelo_avisado = True
+            yield _linea({'type': 'model', 'model': meta.get('model'), 'provider': meta.get('provider'),
+                          'label': meta.get('label')})
+        if decidido:
+            partes.append(trozo)
+            yield _linea({'type': 'token', 'content': trozo})
+            continue
+        retenido += trozo
+        if assistant.MARCADOR_FUERA in retenido:
+            break
+        if len(retenido) < len(assistant.MARCADOR_FUERA) + 4:
+            continue
+        decidido = True
+        if general and not retenido.lstrip().startswith(assistant.AVISO_GENERAL[:12]):
+            retenido = f'{assistant.AVISO_GENERAL}\n\n{retenido}'
+        partes.append(retenido)
+        yield _linea({'type': 'token', 'content': retenido})
+    if not decidido:
+        texto = assistant.fuera_de_tema() if assistant.MARCADOR_FUERA in retenido else retenido
+        partes.append(texto)
+        yield _linea({'type': 'token', 'content': texto})
+
+
+def _responder_en_cola(ctx: assistant.Contexto, partes: list[str], meta: dict, app):
+    """Espera turno (cupo de la IA y hueco en AI_MAX_CONCURRENT) y responde.
+
+    Mientras espera envía {"type": "queue", "seconds": n} para que el navegador
+    muestre «En cola». Si se agota AI_QUEUE_TIMEOUT o la cuota, responde con
+    los documentos encontrados. Devuelve False si terminó en error.
+    """
+    router = llm.router()
+    need = router.estimate_tokens(assistant.build_messages(ctx), assistant.AI_MAX_TOKENS)
+    inicio = time.monotonic()
+    ultimo_aviso, avisado_en = None, 0.0
+    espera: float | None = 0.0
+    while True:
+        espera = router.wait_time('chat', need)
+        if espera is None:
+            break  # no hay ningún modelo configurado
+        if espera <= 0.05 and assistant.cola_modelo.acquire(timeout=1):
+            try:
+                yield from _emitir(ctx, partes, meta)
+                return True
+            except llm.CapacityError as exc:
+                espera = exc.retry_after if exc.retry_after is not None else 3
+            except llm.LLMError as exc:
+                app.logger.error('Asistente (stream): %s', exc)
+                if partes:  # se cortó a mitad de respuesta
+                    yield _linea({'type': 'error', 'message': 'La respuesta se cortó. Vuelve a preguntar.'})
+                    return False
+                espera = None
+                break
+            finally:
+                assistant.cola_modelo.release()
+        if time.monotonic() - inicio + min(espera or 0, 3) > assistant.AI_QUEUE_TIMEOUT:
+            break
+        aviso = max(1, round(espera or 1))
+        # También cada 10 s aunque no cambie: Cloudflare corta una respuesta
+        # que pasa 100 s sin enviar nada.
+        if aviso != ultimo_aviso or time.monotonic() - avisado_en > 10:
+            ultimo_aviso, avisado_en = aviso, time.monotonic()
+            yield _linea({'type': 'queue', 'seconds': aviso,
+                          'message': 'Hay muchas preguntas a la vez: la tuya está en cola.'})
+        time.sleep(min(max(espera or 1, 0.5), 3))
+
+    alterna = assistant.respuesta_sin_ia(ctx, espera)
+    if alterna:
+        meta['degraded'] = True
+        partes.append(alterna)
+        yield _linea({'type': 'token', 'content': alterna})
+        return True
+    minutos = f' Vuelve a intentarlo en unos {max(1, round(espera / 60))} min.' if espera else ' Inténtalo más tarde.'
+    yield _linea({'type': 'error', 'message': 'La IA gratuita está al máximo de su uso en este momento.' + minutos})
+    return False
 
 
 @bp.post('/chat/stream')
@@ -105,67 +202,37 @@ def chat_stream():
     conv_id_inicial = conv.id if conv else None
     app = current_app._get_current_object()
 
-    def linea(obj: dict) -> str:
-        return json.dumps(obj, ensure_ascii=False) + '\n'
-
     def generar():
-        yield linea({'type': 'sources', 'sources': ctx.sources, 'documents': ctx.documents,
-                     'search_mode': ctx.info.get('modo')})
+        yield _linea({'type': 'sources', 'sources': ctx.sources, 'documents': ctx.documents,
+                      'search_mode': ctx.info.get('modo')})
         t0 = time.perf_counter()
         partes: list[str] = []
         meta: dict = {}
+        guardada = None if ctx.respuesta_directa else assistant.cache_get(ctx)
         if ctx.respuesta_directa:
             partes.append(ctx.respuesta_directa)
-            yield linea({'type': 'token', 'content': ctx.respuesta_directa})
+            yield _linea({'type': 'token', 'content': ctx.respuesta_directa})
+        elif guardada:
+            texto, meta = guardada
+            yield _linea({'type': 'model', 'model': meta.get('model'), 'provider': meta.get('provider'),
+                          'label': meta.get('label'), 'cached': True})
+            partes.append(texto)
+            yield _linea({'type': 'token', 'content': texto})
         else:
-            if not assistant.cola_modelo.acquire(timeout=assistant.AI_QUEUE_TIMEOUT):
-                yield linea({'type': 'error', 'message': 'El asistente está atendiendo muchas preguntas. '
-                                                         'Inténtalo en un momento.'})
+            ok = yield from _responder_en_cola(ctx, partes, meta, app)
+            if not ok:
                 return
-            try:
-                # Los primeros caracteres se retienen para detectar el marcador de
-                # «fuera de tema» antes de mostrar nada al estudiante.
-                general = not ctx.fragmentos and not ctx.catalogo
-                retenido = ''
-                decidido = False
-                modelo_avisado = False
-                for trozo in llm.router().chat_stream(assistant.build_messages(ctx), temperature=0.2, meta=meta):
-                    if not modelo_avisado and meta:
-                        modelo_avisado = True
-                        yield linea({'type': 'model', 'model': meta.get('model'), 'provider': meta.get('provider'),
-                                     'label': meta.get('label')})
-                    if decidido:
-                        partes.append(trozo)
-                        yield linea({'type': 'token', 'content': trozo})
-                        continue
-                    retenido += trozo
-                    if assistant.MARCADOR_FUERA in retenido:
-                        break
-                    if len(retenido) < len(assistant.MARCADOR_FUERA) + 4:
-                        continue
-                    decidido = True
-                    if general and not retenido.lstrip().startswith(assistant.AVISO_GENERAL[:12]):
-                        retenido = f'{assistant.AVISO_GENERAL}\n\n{retenido}'
-                    partes.append(retenido)
-                    yield linea({'type': 'token', 'content': retenido})
-                if not decidido:
-                    texto = assistant.fuera_de_tema() if assistant.MARCADOR_FUERA in retenido else retenido
-                    partes.append(texto)
-                    yield linea({'type': 'token', 'content': texto})
-            except llm.LLMError as exc:
-                app.logger.error('Asistente (stream): %s', exc)
-                yield linea({'type': 'error', 'message': 'El modelo de IA no está respondiendo en este momento. '
-                                                         'Inténtalo más tarde.'})
-                return
-            finally:
-                assistant.cola_modelo.release()
 
         respuesta = ''.join(partes).strip()
         # Si el modelo repitió el aviso, no se muestra dos veces.
         aviso = assistant.AVISO_GENERAL
         if respuesta.count(aviso) > 1:
             respuesta = aviso + respuesta.split(aviso, 2)[-1]
+        if not guardada and not meta.get('degraded'):
+            assistant.cache_put(ctx, respuesta, meta)
         sources, documents = assistant.fuentes_citadas(ctx, respuesta)
+        if meta.get('degraded'):
+            sources, documents = ctx.sources, ctx.documents
         modelo = f"{meta['provider']}/{meta['model']}" if meta.get('provider') else None
         try:
             conv_actual = db.session.get(AIConversation, conv_id_inicial) if conv_id_inicial else None
@@ -174,9 +241,10 @@ def chat_stream():
             db.session.rollback()
             app.logger.error('No se pudo guardar la conversación: %s', exc)
             conv_id = conv_id_inicial
-        yield linea({'type': 'done', 'conversation_id': conv_id, 'sources': sources, 'documents': documents,
-                     'model': modelo, 'timings_ms': {**ctx.info.get('tiempos_ms', {}),
-                                                     'generacion': round((time.perf_counter() - t0) * 1000)}})
+        yield _linea({'type': 'done', 'conversation_id': conv_id, 'sources': sources, 'documents': documents,
+                      'model': modelo, 'cached': bool(meta.get('cached')), 'degraded': bool(meta.get('degraded')),
+                      'timings_ms': {**ctx.info.get('tiempos_ms', {}),
+                                     'generacion': round((time.perf_counter() - t0) * 1000)}})
 
     return Response(stream_with_context(generar()), mimetype='application/x-ndjson',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})

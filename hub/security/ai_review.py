@@ -1,8 +1,12 @@
 """Tercera barrera: un modelo de IA revisa el contenido (el «vigilante»).
 
-Corre con un modelo distinto al del asistente (por defecto gpt-oss-20b en Groq
-o Gemini Flash-Lite) y en paralelo a él: mientras el asistente responde
-preguntas, el vigilante revisa lo que suben los estudiantes.
+Por defecto usa el mismo modelo que el asistente, openai/gpt-oss-120b en Groq
+(GROQ_SECURITY_MODELS), con gpt-oss-20b de respaldo si el primero no tiene
+cupo. Corre en segundo plano, en paralelo al asistente, y le deja siempre una
+reserva de tokens por minuto (AI_SECURITY_RESERVE_TOKENS): si no hay cupo,
+espera hasta SCAN_AI_WAIT segundos y, si sigue sin haberlo, el vigilante
+reintenta más tarde (ver pipeline.py). Sólo se envían los primeros
+SCAN_AI_MAX_CHARS caracteres del documento para gastar poca cuota.
 
 Revisa:
 * Texto extraído del documento: phishing, malware explicado para usarse,
@@ -15,6 +19,8 @@ Revisa:
 
 El veredicto es ok | review | block. El material académico (aunque trate de
 seguridad informática, medicina o temas sensibles con enfoque de estudio) es ok.
+«skipped» significa que no hay modelo capaz (imágenes sin un modelo con visión):
+el archivo ya pasó el análisis estático y el antivirus y se publica con la nota.
 """
 
 from __future__ import annotations
@@ -25,10 +31,12 @@ import re
 
 from ..ai import llm
 from ..ai.extract import texto_plano
-from ..config import env_float
+from ..config import env_float, env_int
 from ..storage import IMAGE_EXTENSIONS, extension
 
 PROMPT_GUARD_THRESHOLD = env_float('SCAN_PROMPT_GUARD_THRESHOLD', 0.9)
+MAX_CHARS = env_int('SCAN_AI_MAX_CHARS', 6000)   # ~1.700 tokens por archivo
+WAIT_SECONDS = env_int('SCAN_AI_WAIT', 90)        # espera máxima por cupo antes de reintentar más tarde
 
 POLITICA = """Eres el moderador de seguridad de una plataforma universitaria donde estudiantes de la Universidad Francisco Gavidia comparten documentos de estudio. Revisa el archivo que se te muestra y clasifícalo.
 
@@ -69,7 +77,7 @@ def review(path: str, original_name: str, title: str = '', description: str = ''
     if ext in IMAGE_EXTENSIONS:
         return _review_image(router, path, original_name, title)
 
-    texto, estado = texto_plano(path, limite=9000)
+    texto, estado = texto_plano(path, limite=MAX_CHARS)
     if not texto:
         return {'verdict': 'ok', 'reason': 'Sin texto que revisar (formato sin texto extraíble).',
                 'categories': [], 'model': None, 'extraction': estado}
@@ -85,7 +93,8 @@ def review(path: str, original_name: str, title: str = '', description: str = ''
                                     f'Descripción: {description}\n\n<contenido>\n{texto}\n</contenido>'},
     ]
     try:
-        respuesta = router.chat(mensajes, purpose='security', temperature=0, max_tokens=600, json_mode=True)
+        respuesta = router.chat(mensajes, purpose='security', temperature=0, max_tokens=600, json_mode=True,
+                                wait=WAIT_SECONDS)
         resultado.update(_parse(respuesta.text))
         resultado['model'] = f'{respuesta.provider}/{respuesta.model}'
     except (llm.LLMError, ValueError) as exc:
@@ -101,9 +110,9 @@ def review(path: str, original_name: str, title: str = '', description: str = ''
 
 
 def _review_image(router: llm.Router, path: str, original_name: str, title: str) -> dict:
-    if not router.candidates('vision'):
-        return {'verdict': 'unavailable', 'reason': 'No hay un modelo con visión configurado (Gemini).',
-                'categories': [], 'model': None}
+    if router.wait_time('vision') is None:
+        return {'verdict': 'skipped', 'reason': 'No hay un modelo con visión configurado (Gemini): '
+                'la imagen sólo pasó el análisis estático y el antivirus.', 'categories': [], 'model': None}
     with open(path, 'rb') as fh:
         datos = fh.read(6 * 1024 * 1024)
     ext = extension(original_name)
@@ -118,7 +127,8 @@ def _review_image(router: llm.Router, path: str, original_name: str, title: str)
         ]},
     ]
     try:
-        respuesta = router.chat(mensajes, purpose='vision', temperature=0, max_tokens=400, json_mode=True)
+        respuesta = router.chat(mensajes, purpose='vision', temperature=0, max_tokens=400, json_mode=True,
+                                wait=WAIT_SECONDS)
         resultado = _parse(respuesta.text)
         resultado['model'] = f'{respuesta.provider}/{respuesta.model}'
         return resultado
