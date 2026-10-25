@@ -1,6 +1,8 @@
-# Publica UFG Knowledge Hub en internet GRATIS con Cloudflare Tunnel (sin cuenta,
+﻿# Publica UFG Knowledge Hub en internet GRATIS con Cloudflare Tunnel (sin cuenta,
 # sin abrir puertos del router ni tocar el firewall).
 #
+# Lo más fácil es iniciar.bat, que arranca el servidor y abre este túnel solo.
+# Este script sirve cuando el servidor ya está encendido:
 #   1. Instala cloudflared una sola vez:   winget install Cloudflare.cloudflared
 #   2. Arranca el servidor en otra terminal:   .venv\Scripts\python.exe wsgi.py
 #   3. Ejecuta este script:   powershell -ExecutionPolicy Bypass -File scripts\compartir.ps1

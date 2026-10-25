@@ -10,6 +10,8 @@
     python manage.py index --stats | --sync | --rebuild
     python manage.py index --query "pregunta" --user 1
     python manage.py scan ruta/al/archivo.pdf   pasa un archivo por el vigilante
+    python manage.py storage               archivos y espacio por carpeta
+    python manage.py storage --limpiar     borra subidas a medias y archivos huérfanos (--simular para ver antes)
 """
 
 from __future__ import annotations
@@ -143,6 +145,25 @@ def cmd_scan(args) -> None:
         print(json.dumps(ai_review.review(ruta, nombre), ensure_ascii=False, indent=2))
 
 
+def cmd_storage(args) -> None:
+    from hub import storage
+    app = _app()
+    with app.app_context():
+        if args.limpiar:
+            informe = storage.cleanup(dry_run=args.simular, min_age_hours=args.horas)
+            accion = 'Se borrarían' if args.simular else 'Borrados'
+            print(f"{accion} {len(informe['removed'])} archivos ({informe['bytes'] / 1024 / 1024:.1f} MB)")
+            for ruta in informe['removed'][:50]:
+                print('  ' + ruta)
+            return
+        st = storage.stats()
+        print(f"Carpeta: {st['path']}")
+        for nombre, f in st['folders'].items():
+            print(f"  {nombre:<10} {f['files']:>6} archivos  {f['bytes'] / 1024 / 1024:>8.1f} MB")
+        if st['free_bytes'] is not None:
+            print(f"Libre en el disco: {st['free_bytes'] / 1024 ** 3:.1f} GB")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Herramientas de UFG Knowledge Hub')
     sub = parser.add_subparsers(dest='cmd', required=True)
@@ -166,6 +187,11 @@ def main() -> None:
     p.add_argument('--query')
     p.add_argument('--user', type=int)
     p.set_defaults(func=cmd_index)
+    p = sub.add_parser('storage', help='Espacio de los archivos y limpieza de huérfanos')
+    p.add_argument('--limpiar', action='store_true')
+    p.add_argument('--simular', action='store_true', help='Con --limpiar: sólo muestra qué se borraría')
+    p.add_argument('--horas', type=float, default=24, help='Antigüedad mínima de un huérfano para borrarlo')
+    p.set_defaults(func=cmd_storage)
     p = sub.add_parser('scan', help='Pasa un archivo por el vigilante')
     p.add_argument('path')
     p.add_argument('--no-ai', action='store_true')

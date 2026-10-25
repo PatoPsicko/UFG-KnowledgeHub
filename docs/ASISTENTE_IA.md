@@ -5,6 +5,12 @@
 > OpenRouter) y deja Ollama como respaldo. Se movió del botón flotante a la
 > página de **Inicio** (donde estaba el chat global) y tiene su propia sección
 > **Asistente** con historial.
+>
+> **Fase 2:** preparado para 20 personas a la vez con la cuenta gratuita de
+> Groq: el router conoce la cuota de cada modelo, las preguntas esperan en cola
+> con aviso en pantalla, las repetidas salen de una caché y, si la cuota se
+> agota, el estudiante recibe igualmente los documentos encontrados. Ver la
+> sección 5.
 
 ## 1. Qué hace
 
@@ -50,12 +56,57 @@ biblioteca estándar los sirve a todos.
 - Ante un **401/403** (clave inválida) el proveedor se desactiva hasta reiniciar.
 - Un proveedor sin clave se ignora; Ollama sólo se usa si responde en `/api/tags`.
 - El vigilante de seguridad usa su propio orden (`SECURITY_AI_PROVIDERS`) y
-  modelos más pequeños, así no compite con el asistente por la misma cuota.
+  sus modelos (`GROQ_SECURITY_MODELS`): el mismo `openai/gpt-oss-120b` del
+  asistente, con `gpt-oss-20b` de respaldo, dejando siempre una reserva de
+  tokens para las preguntas de los estudiantes (`AI_SECURITY_RESERVE_TOKENS`).
+- Las citas que gpt-oss escribe a su manera (`【2】`, `【2†L1-L4】`) se convierten
+  a `[2]` para que se puedan pulsar.
 
-Las cuotas gratuitas cambian a menudo y dependen de cada proyecto: los límites
-reales se ven en Google AI Studio y en la consola de Groq. Con varios
-proveedores configurados, el sitio sigue respondiendo aunque uno se agote a
-media clase.
+### Modelos configurados (octubre de 2026)
+
+| Uso | Modelos, en orden | Cuota gratuita de cada uno |
+|---|---|---|
+| Asistente | `openai/gpt-oss-120b` → `qwen/qwen3.8-27b` → `openai/gpt-oss-20b` (Groq) | 8.000 tokens/min y 1.000 peticiones/día |
+| Vigilante | `openai/gpt-oss-120b` → `openai/gpt-oss-20b` (Groq) | la misma (se comparte con el asistente) |
+| Instrucciones ocultas | `meta-llama/llama-prompt-guard-2-86m` (Groq) | aparte |
+| Respaldo opcional | Gemini (falta la clave), OpenRouter, Ollama local | — |
+
+Los números salen de las cabeceras `x-ratelimit-*` que Groq devolvió a esta
+cuenta (se ven en vivo en el panel de Seguridad). Cada modelo tiene su propia
+cuota, por eso el asistente rota entre tres: suman unas 24.000 tokens por
+minuto y 3.000 preguntas al día.
+
+## 2b. Cuotas con 20 personas a la vez
+
+Una pregunta con extractos usa entre 2.500 y 4.500 tokens (pregunta, catálogo,
+cinco extractos y hasta 1.200 de respuesta, que Groq descuenta por adelantado).
+Con 24.000 tokens por minuto caben **entre 5 y 8 respuestas nuevas por minuto**.
+
+Qué hace el sistema cuando llegan más:
+
+1. **Sabe cuánto queda.** Tras cada respuesta, el router guarda los tokens que
+   le quedan a ese modelo en el minuto y las peticiones del día (Groq los rellena
+   de forma continua). Antes de enviar, reserva el cupo; si no cabe, prueba el
+   siguiente modelo sin llegar a provocar un error 429.
+2. **Cola con aviso.** Si ningún modelo tiene cupo, la pregunta espera
+   (`AI_QUEUE_TIMEOUT`, 150 s) y el navegador muestra «En cola: unos N s». La
+   espera se avisa cada pocos segundos para que el túnel de Cloudflare no corte
+   la conexión (lo hace a los 100 s sin datos).
+3. **Caché.** La misma pregunta con los mismos extractos se responde desde
+   memoria durante `AI_CACHE_MINUTES` (15). En una demostración casi todos
+   preguntan lo mismo: en la prueba de carga, 41 de 59 respuestas salieron de ahí.
+4. **Sin cuota, igual responde.** Si la espera se agota o la cuota del día se
+   acaba, el estudiante recibe los documentos que encontró la búsqueda, con sus
+   fuentes, y un aviso de cuándo volver a preguntar. No ve un error.
+5. **El vigilante no estorba.** Revisa los archivos en segundo plano, sólo usa
+   cupo si sobra la reserva del asistente y, sin cuota, reintenta a los 1, 5,
+   15, 30 y 60 minutos (ver `SEGURIDAD.md`).
+
+**Si se acaba la cuota del día** (1.000 peticiones por modelo): Groq responde
+429 hasta que se recupera (una petición cada ~86 s). El asistente sigue dando
+los documentos encontrados y el vigilante deja los archivos «En revisión» hasta
+que vuelva a haber cupo. Para tener más margen: añadir `GEMINI_API_KEY` (cuota
+aparte y mucho más grande por minuto) o una clave de OpenRouter.
 
 ## 3. Búsqueda (`hub/ai/index.py`)
 
@@ -85,12 +136,20 @@ media clase.
 `sources` son los extractos citados (`n`, `title`, `origin`, `page`, `snippet`,
 `doc_key`); `documents`, los documentos del catálogo nombrados en la respuesta.
 
+En *streaming* también llegan `{"type": "queue", "seconds": n}` mientras la
+pregunta espera cupo, y `done` trae `cached` y `degraded` (respuesta sin IA).
+
 ## 5. Carga
 
 - `AI_RATE_LIMIT` preguntas por usuario y minuto (12).
 - `AI_MAX_CONCURRENT` respuestas generándose a la vez (6 en la nube; con Ollama
-  sin GPU conviene 1) y `AI_QUEUE_TIMEOUT` de espera en cola.
+  sin GPU conviene 1) y `AI_QUEUE_TIMEOUT` de espera en cola (150 s).
+- `AI_MAX_TOKENS` (1.200) limita cada respuesta; `AI_HISTORY_TURNS` (4) y el
+  recorte de respuestas anteriores a 700 caracteres ahorran tokens en las
+  conversaciones largas; `AI_TOP_K` (5) extractos por pregunta.
 - Saludos y agradecimientos se contestan con texto fijo: no gastan cuota.
+- `AI_SIMULATED=1` cambia la IA por una simulada con los mismos límites que
+  Groq (`hub/ai/simulado.py`): la usa `scripts/prueba_carga.py --aislado`.
 
 ## 6. Comprobar que funciona
 
@@ -108,6 +167,8 @@ python -m pytest tests/test_assistant.py tests/test_llm_router.py
 - Los PDF escaneados sin capa de texto sólo se encuentran por su título y
   etiquetas (no hay OCR).
 - Las cuotas gratuitas tienen límites diarios: para una prueba con 20 personas
-  conviene configurar Gemini **y** Groq.
+  conviene configurar Gemini **y** Groq. Hoy sólo hay clave de Groq.
+- La caché y el conocimiento de la cuota viven en memoria: se pierden al
+  reiniciar el servidor (no pasa nada, se vuelven a llenar solos).
 - El límite por usuario vive en memoria: con varios procesos habría que llevarlo
   a Redis (con `python wsgi.py` hay un solo proceso, así que no aplica).
