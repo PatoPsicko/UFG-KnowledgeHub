@@ -21,7 +21,8 @@ asistente de IA. Todo gratis.
    python scripts/prueba_carga.py --aislado
    ```
 
-   Debe terminar con 0 errores. Ver resultados en `docs/FASE_2.md`.
+   Debe terminar con 0 errores (resultados de referencia en `docs/FASE_2.md`).
+   Cuando termine, el puerto 5001 queda libre para `iniciar.bat`.
 6. Que haya material: `python seed_test_data.py` con el servidor encendido crea
    documentos, grupos y cuentas de prueba (correos `@prueba.ufg.edu.sv`,
    contraseña en el propio script).

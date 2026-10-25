@@ -3,12 +3,13 @@
 # (o doble clic en iniciar.bat)
 #
 #   -SinTunel    sólo esta PC y la red local, sin link público de Cloudflare
+#   -SinNavegador  no abre el navegador al final (pruebas automáticas)
 #
 # La primera vez prepara el entorno y pide la clave de Groq (se guarda sólo en
 # .env, que nunca se sube a GitHub). Las siguientes veces arranca directo.
 # Para apagar todo: Ctrl+C o cerrar esta ventana.
 
-param([switch]$SinTunel)
+param([switch]$SinTunel, [switch]$SinNavegador)
 
 $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
@@ -116,9 +117,9 @@ if (-not $SinTunel) {
 }
 
 # 6. Resumen
-$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' -and $_.PrefixOrigin -ne 'WellKnown' } |
-    Select-Object -ExpandProperty IPAddress
+# Sólo adaptadores con salida a internet (se descartan los virtuales de WSL o Hyper-V).
+$ips = Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPv4DefaultGateway } |
+    ForEach-Object { $_.IPv4Address.IPAddress }
 Write-Host ''
 Write-Host ('=' * 66) -ForegroundColor DarkCyan
 Write-Host '  UFG Knowledge Hub está encendido' -ForegroundColor White
@@ -133,7 +134,7 @@ if ($publico) {
 Write-Host ''
 Write-Host '  Para apagar todo: Ctrl+C o cierra esta ventana.' -ForegroundColor DarkGray
 Write-Host ('=' * 66) -ForegroundColor DarkCyan
-Start-Process "http://127.0.0.1:$puerto"
+if (-not $SinNavegador) { Start-Process "http://127.0.0.1:$puerto" }
 
 try {
     while (-not $servidor.HasExited) { Start-Sleep -Seconds 2 }

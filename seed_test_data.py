@@ -25,7 +25,12 @@ script; la app no los usa):
     pip install python-pptx openpyxl
 
 Si los usuarios de prueba ya existen, no hace nada (para no duplicar datos).
-Para empezar de cero: python init_database.py --reset
+Para empezar de cero: python manage.py db --reset
+
+Las cuentas de prueba usan el dominio reservado @prueba.ufg.edu.sv, que el
+registro normal no acepta (Fase 2: sólo @ufg.edu.sv). Por eso este script las
+crea directamente en la base de datos de esta PC y después entra por la API
+como cualquier estudiante: tiene que correr en la misma PC que el servidor.
 """
 
 import argparse
@@ -582,12 +587,8 @@ class Api:
         return self._check(requests.put(self.url + ruta, headers=self.h(clave), timeout=60, **kw))
 
     def registrar_y_entrar(self, clave, nombre, color):
-        r = requests.post(self.url + '/api/register', json={
-            'name': nombre, 'email': email_de(clave), 'password': TEST_PASSWORD, 'profile_color': color},
-            timeout=60)
-        if r.status_code == 409:
+        if not crear_cuenta_de_prueba(email_de(clave), nombre, color):
             return False
-        self._check(r)
         datos = self._check(requests.post(self.url + '/api/login', json={
             'email': email_de(clave), 'password': TEST_PASSWORD}, timeout=60))
         self.tokens[clave] = datos['token']
@@ -597,6 +598,27 @@ class Api:
     def subir(self, clave, ruta_api, archivo, campos):
         with open(archivo, 'rb') as fh:
             return self.post(clave, ruta_api, data=campos, files={'file': (archivo.name, fh)})
+
+
+_app_local = None
+
+
+def crear_cuenta_de_prueba(email, nombre, color):
+    """Crea la cuenta en la base de datos local. Devuelve False si ya existía."""
+    global _app_local
+    from hub import create_app
+    from hub.extensions import bcrypt, db
+    from hub.models import User
+
+    if _app_local is None:
+        _app_local = create_app({'BACKGROUND_WORKERS': False})
+    with _app_local.app_context():
+        if User.query.filter(db.func.lower(User.email) == email.lower()).first():
+            return False
+        db.session.add(User(name=nombre, email=email, profile_color=color,
+                            password=bcrypt.generate_password_hash(TEST_PASSWORD).decode('utf-8')))
+        db.session.commit()
+    return True
 
 
 def main():
@@ -616,7 +638,7 @@ def main():
         for clave, nombre, carrera, semestre, color in USUARIOS:
             if not api.registrar_y_entrar(clave, nombre, color):
                 sys.exit(f'El usuario {email_de(clave)} ya existe: los datos de prueba ya se crearon. '
-                         'Para empezar de cero: python init_database.py --reset')
+                         'Para empezar de cero: python manage.py db --reset')
             api.post(clave, '/api/profile', json={'name': nombre, 'career': carrera, 'semester': semestre})
         print(f'Usuarios: {len(USUARIOS)}')
 
