@@ -5,7 +5,7 @@ import { $, fileSize, html, longDate, on, raw, setHtml, timeAgo } from '../core/
 import { go } from '../core/router.js';
 import { store } from '../core/store.js';
 import { typeLabel } from '../data/categories.js';
-import { avatar, countBadge, empty, loading, scanBadge } from '../ui/components.js';
+import { avatar, bindFilter, countBadge, empty, loading, scanBadge, searchToggle } from '../ui/components.js';
 import { mountChat } from '../ui/chatlog.js';
 import { icon } from '../ui/icons.js';
 import { confirmDialog, openDialog, openMenu, toast } from '../ui/overlay.js';
@@ -24,10 +24,6 @@ function badgeLetra(nombre) {
 
 /* --- Crear / editar grupo -------------------------------------------------------- */
 async function groupDialog(grupo = null, onDone = () => {}) {
-    let amigos = [];
-    if (!grupo) {
-        try { amigos = (await api.get('/api/contacts')).contacts; } catch { /* opcional */ }
-    }
     openDialog({
         title: grupo ? 'Editar grupo' : 'Crear grupo de trabajo',
         description: grupo ? '' : 'Organiza un proyecto: chat, tareas y archivos en un mismo lugar.',
@@ -39,8 +35,7 @@ async function groupDialog(grupo = null, onDone = () => {}) {
                 <input class="input" name="subject" maxlength="120" value="${grupo?.subject || ''}" placeholder="Ej. Bases de Datos II"></label>
             <label class="field"><span class="field__label">Descripción</span>
                 <textarea class="textarea" name="description" rows="3" maxlength="2000" placeholder="Objetivo, entregas, acuerdos...">${grupo?.description || ''}</textarea></label>
-            ${!grupo && amigos.length ? html`<div class="field"><span class="field__label">Agregar amigos</span>
-                <div class="chips">${amigos.map((c) => html`<button type="button" class="chip" data-member="${c.user.id}" aria-pressed="false">${c.name}</button>`)}</div></div>` : ''}`,
+`,
         onOpen: (dlg) => dlg.querySelectorAll('[data-member]').forEach((b) => b.addEventListener('click', () =>
             b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')))),
         onSubmit: async (form, dlg) => {
@@ -64,10 +59,10 @@ async function groupDialog(grupo = null, onDone = () => {}) {
 export async function groupsView(root, params, signal) {
     if (params.id) return groupDetail(root, Number(params.id), signal, params.query?.tab);
 
-    setHtml(root, html`<div class="page">
+    setHtml(root, html`<div class="page theme-green">
         <div class="page-head">
             <div><h1>Grupos de trabajo</h1><p>Reúne a tu equipo, reparte tareas y comparte archivos que sólo ven los miembros.</p></div>
-            <div class="page-head__actions"><button class="btn btn--primary" data-action="create">${icon('plus')}Crear grupo</button></div>
+            <div class="page-head__actions">${searchToggle('Buscar grupos')}<button class="btn btn--primary" data-action="create">${icon('plus')}Crear grupo</button></div>
         </div>
         <div data-slot="list">${loading()}</div>
     </div>`);
@@ -93,13 +88,14 @@ export async function groupsView(root, params, signal) {
                         <span style="margin-left:auto">${g.last_message ? timeAgo(g.last_message.timestamp) : timeAgo(g.created_at)}</span>
                     </div>
                 </a>`)}</div>`
-                : html`<div class="panel">${empty({ icon: 'users', title: 'Todavía no estás en ningún grupo', text: 'Crea uno para tu próximo proyecto e invita a tus amigos.',
+                : html`<div class="panel">${empty({ icon: 'users', title: 'Todavía no estás en ningún grupo', text: 'Crea uno para tu próximo proyecto e invita a tus compañeros.',
                     action: html`<button class="btn btn--primary" data-action="create">${icon('plus')}Crear grupo</button>` })}</div>`);
         } catch (err) {
             setHtml($('[data-slot="list"]', root), empty({ icon: 'alert', title: 'No se pudieron cargar tus grupos', text: err.message }));
         }
     }
 
+    bindFilter(root, '[data-slot="list"]', '.group-card', signal);
     on(root, 'click', '[data-action="create"]', () => groupDialog(null, (id) => go(`/grupos/${id}`)), signal);
     store.on('pulse', ({ pulse, previo }) => { if (pulse.groups_unread_total !== previo?.groups_unread_total) cargar(); }, signal);
     cargar();
@@ -136,7 +132,7 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
         </div>`;
     }
 
-    setHtml(root, html`<div class="page page--wide"><div data-slot="head"></div><div data-slot="body"></div></div>`);
+    setHtml(root, html`<div class="page page--wide theme-green"><div data-slot="head"></div><div data-slot="body"></div></div>`);
     const cuerpo = $('[data-slot="body"]', root);
     let chat = null;
 
@@ -234,8 +230,8 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
                 <p style="color:var(--ink-2)">Sólo los miembros del grupo pueden ver estos archivos.</p>
                 <button class="btn btn--primary" data-action="upload">${icon('upload')}Subir archivo</button></div>
             <section class="panel doc-list">${datos.resources.length ? datos.resources.map((r) => html`
-                <article class="doc" style="--spine: var(--navy-3)" data-res="${r.id}">
-                    <span class="doc__type">${typeLabel(r.extension)}</span>
+                <article class="doc" data-res="${r.id}">
+                    <span class="doc__type" data-ext="${r.extension}">${typeLabel(r.extension)}</span>
                     <div class="doc__main"><span class="doc__title" style="cursor:default">${r.title}</span>
                         <div class="doc__meta"><span>${r.uploaded_by}</span><span>${timeAgo(r.uploaded_at)}</span>${r.file_size ? html`<span>${fileSize(r.file_size)}</span>` : ''}${scanBadge(r.scan_status)}</div>
                         ${r.description ? html`<p style="font-size:14px;color:var(--ink-2);margin-top:4px">${r.description}</p>` : ''}</div>
@@ -250,7 +246,7 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
     function pintarMiembros() {
         const soyLider = datos.group.is_owner;
         setHtml(cuerpo, html`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap">
-                <p style="color:var(--ink-2)">${soyLider ? 'Como líder puedes agregar a cualquier estudiante y retirar miembros.' : 'Puedes agregar a tus amigos al grupo.'}</p>
+                <p style="color:var(--ink-2)">${soyLider ? 'Como líder puedes agregar estudiantes y retirar miembros.' : 'Puedes agregar compañeros al grupo.'}</p>
                 <button class="btn btn--primary" data-action="invite">${icon('userPlus')}Agregar miembro</button></div>
             <section class="panel people">${datos.members.map((m) => html`<div class="person">
                 ${avatar(m)}<div class="person__body"><button class="person__name" data-profile="${m.id}">${m.name}${m.id === yo ? ' (tú)' : ''}</button>
@@ -260,18 +256,12 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
     }
 
     async function inviteDialog() {
-        const soyLider = datos.group.is_owner;
-        let amigos = [];
-        try { amigos = (await api.get('/api/contacts')).contacts.filter((c) => !datos.members.some((m) => m.id === c.user.id)); } catch { /* */ }
         const dlg = openDialog({
             title: 'Agregar al grupo',
-            description: soyLider ? 'Elige a tus amigos o busca a cualquier estudiante.' : 'Puedes agregar a tus amigos.',
+            description: 'Busca al estudiante por nombre, correo o carrera.',
             footer: false,
-            body: html`${soyLider ? html`<div class="search" style="margin-bottom:10px">${icon('search')}<input class="input" data-slot="q" type="search" placeholder="Buscar estudiantes"></div>` : ''}
-                <div class="people" data-slot="people">${amigos.length ? amigos.map((c) => html`<div class="person">${avatar(c.user)}
-                    <div class="person__body"><div class="person__name">${c.name}</div><div class="person__meta">${c.user.career || ''}</div></div>
-                    <button class="btn btn--secondary btn--sm" data-add="${c.user.id}">Agregar</button></div>`)
-                    : html`<p style="color:var(--ink-3)">${soyLider ? 'Busca por nombre o correo.' : 'Todos tus amigos ya están en el grupo, o aún no tienes amigos agregados.'}</p>`}</div>`,
+            body: html`<div class="search" style="margin-bottom:10px">${icon('search')}<input class="input" data-slot="q" type="search" placeholder="Buscar estudiantes"></div>
+                <div class="people" data-slot="people"><p style="color:var(--ink-3)">Escribe al menos 2 letras.</p></div>`,
         });
         dlg.addEventListener('click', async (e) => {
             const b = e.target.closest('[data-add]');

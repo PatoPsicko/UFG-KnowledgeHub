@@ -68,6 +68,8 @@ class FakeRouter(llm.Router):
             raise llm.LLMError('sin cuota')
         self.chat_calls.append(messages)
         contenido = messages[-1]['content']
+        if 'mundial' in contenido.lower():
+            return llm.ChatResult('[FUERA_DE_TEMA]', 'fake', 'fake-model')
         if 'EXTRACTOS:' in contenido and '[1]' in contenido:
             return llm.ChatResult('Según el material, la normalización evita redundancia [1].', 'fake', 'fake-model')
         return llm.ChatResult('Respuesta general.', 'fake', 'fake-model')

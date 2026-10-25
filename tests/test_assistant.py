@@ -48,10 +48,19 @@ def test_private_documents_are_not_leaked(make_user, fake_router):
 
 def test_general_fallback_when_no_material(make_user):
     ana = make_user('Ana')
-    r = ana.post('/api/ai/chat', {'question': '¿Quién ganó el mundial de 1986?'})
-    datos = r.get_json()
-    assert datos['answer'].startswith('No encontré esto en los documentos')
+    datos = ana.post('/api/ai/chat', {'question': 'Explícame qué es la recursividad'}).get_json()
+    assert 'No encontré esto en los documentos' in datos['answer']
     assert datos['sources'] == []
+
+
+def test_off_topic_is_refused(make_user):
+    from hub.ai.assistant import FUERA_DE_TEMA
+    ana = make_user('Ana')
+    datos = ana.post('/api/ai/chat', {'question': '¿Quién ganó el mundial de 1986?'}).get_json()
+    assert datos['answer'] in FUERA_DE_TEMA
+    r = ana.post('/api/ai/chat/stream', {'question': '¿Y el mundial de 2010?'})
+    texto = ''.join(json.loads(l).get('content', '') for l in r.data.decode().splitlines() if '"token"' in l)
+    assert texto in FUERA_DE_TEMA
 
 
 def test_stream_ndjson(make_user):

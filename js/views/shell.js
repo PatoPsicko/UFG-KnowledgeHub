@@ -10,11 +10,10 @@ import { toast } from '../ui/overlay.js';
 
 const NAV = [
     { path: '/inicio', label: 'Inicio', icon: 'home' },
-    { path: '/biblioteca', label: 'Biblioteca', icon: 'library' },
     { path: '/asistente', label: 'Asistente', icon: 'bulb' },
-    { path: '/mensajes', label: 'Mensajes', icon: 'chat', badge: (p) => p.dm_unread_total },
+    { path: '/biblioteca', label: 'Biblioteca', icon: 'library' },
     { path: '/grupos', label: 'Grupos', icon: 'users', badge: (p) => p.groups_unread_total },
-    { path: '/anotaciones', label: 'Anotaciones', icon: 'note' },
+    { path: '/anotaciones', label: 'Mi espacio', icon: 'note' },
 ];
 
 const NOTIF_ICON = {
@@ -27,8 +26,8 @@ const NOTIF_ICON = {
 function notifTarget(n) {
     switch (n.type) {
     case 'contact_request':
-    case 'contact_accepted': return '/mensajes/amigos';
-    case 'message': return '/mensajes';
+    case 'contact_accepted':
+    case 'message': return null;
     case 'group_invite':
     case 'group_task':
     case 'group_owner': return n.related_id ? `/grupos/${n.related_id}` : '/grupos';
@@ -59,12 +58,23 @@ export function renderShell(root, { onLogout }) {
     const user = store.user;
     setHtml(root, html`<div class="app" id="app">
         <aside class="sidebar" aria-label="Navegación principal">
-            <a class="sidebar__brand" href="#/inicio" aria-label="Ir al inicio">
-                <img src="img/logo_ufg.png" alt="Universidad Francisco Gavidia">
-                <span class="sidebar__product">Knowledge Hub</span>
-            </a>
+            <div class="sidebar__top">
+                <a class="sidebar__brand" href="#/inicio" aria-label="Ir al inicio">
+                    <img src="img/logo_hub.png" alt="UFG Knowledge Hub">
+                    <span class="sidebar__product">Knowledge Hub</span>
+                </a>
+                <button class="icon-btn icon-btn--sm sidebar__fold" data-action="fold" aria-label="Plegar menú" title="Plegar menú">${icon('foldLeft')}</button>
+            </div>
             <nav class="nav" id="nav">${navHtml(user, store.pulse, '/inicio')}</nav>
             <div class="sidebar__footer">
+                <div class="sidebar__actions">
+                    <button class="theme-switch" type="button" data-action="theme" role="switch" aria-checked="false" aria-label="Modo oscuro">
+                        <span class="theme-switch__track"><span class="theme-switch__thumb">${icon('sun')}</span></span><span>Modo oscuro</span></button>
+                    <div class="bell-wrap">
+                        <button class="icon-btn" data-action="toggle-notifs" aria-label="Notificaciones" aria-haspopup="true" id="bell">${icon('bell')}</button>
+                        <div id="notif-slot"></div>
+                    </div>
+                </div>
                 <a class="me" href="#/perfil" id="me">${avatar({ ...user, online: true })}
                     <span style="min-width:0"><span class="me__name">${user.name}</span><br><span class="me__meta">${user.career || 'Completa tu perfil'}</span></span></a>
                 <button class="nav__item" data-action="logout" type="button">${icon('logout')}<span>Cerrar sesión</span></button>
@@ -74,17 +84,7 @@ export function renderShell(root, { onLogout }) {
         <div class="main">
             <header class="topbar" id="topbar">
                 <button class="icon-btn topbar__menu" data-action="open-nav" aria-label="Abrir menú">${icon('menu')}</button>
-                <form class="topbar__search search" role="search" id="global-search">
-                    ${icon('search')}
-                    <input class="input" name="q" type="search" placeholder="Buscar documentos, autores o etiquetas" aria-label="Buscar en la biblioteca">
-                </form>
-                <div class="topbar__actions">
-                    <span class="online-pill" id="online-pill" title="Personas conectadas ahora"><span class="dot"></span><span>1 en línea</span></span>
-                    <div style="position:relative">
-                        <button class="icon-btn" data-action="toggle-notifs" aria-label="Notificaciones" aria-haspopup="true" id="bell">${icon('bell')}</button>
-                        <div id="notif-slot"></div>
-                    </div>
-                </div>
+
             </header>
             <div id="view"></div>
         </div>
@@ -97,15 +97,37 @@ export function renderShell(root, { onLogout }) {
     window.addEventListener('scroll', () => topbar.classList.toggle('is-scrolled', window.scrollY > 4), { passive: true, signal });
 
     on(app, 'click', '[data-action="logout"]', () => onLogout());
+    const pintarTema = () => {
+        const oscuro = document.documentElement.dataset.theme === 'dark';
+        const sw = $('[data-action="theme"]', root);
+        sw.setAttribute('aria-checked', String(oscuro));
+        setHtml(sw.querySelector('.theme-switch__thumb'), icon(oscuro ? 'moon' : 'sun'));
+    };
+    on(app, 'click', '[data-action="theme"]', () => {
+        const oscuro = document.documentElement.dataset.theme !== 'dark';
+        document.documentElement.dataset.theme = oscuro ? 'dark' : 'light';
+        try { localStorage.setItem('theme', oscuro ? 'dark' : 'light'); } catch { /* modo privado */ }
+        pintarTema();
+    });
+    pintarTema();
     on(app, 'click', '[data-action="open-nav"]', () => app.classList.add('nav-open'));
     on(app, 'click', '[data-action="close-nav"]', () => app.classList.remove('nav-open'));
     on(app, 'click', '.nav__item[href], .me', () => app.classList.remove('nav-open'));
 
-    $('#global-search', root).addEventListener('submit', (e) => {
-        e.preventDefault();
-        const q = e.target.q.value.trim();
-        go(`/biblioteca${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+    const pintarPliegue = () => {
+        const plegado = app.classList.contains('is-folded');
+        const b = $('[data-action="fold"]', root);
+        b.setAttribute('aria-label', plegado ? 'Desplegar menú' : 'Plegar menú');
+        b.title = b.getAttribute('aria-label');
+        setHtml(b, icon(plegado ? 'foldRight' : 'foldLeft'));
+    };
+    try { if (localStorage.getItem('sidebar') === 'folded') app.classList.add('is-folded'); } catch { /* sin almacenamiento */ }
+    on(app, 'click', '[data-action="fold"]', () => {
+        app.classList.toggle('is-folded');
+        try { localStorage.setItem('sidebar', app.classList.contains('is-folded') ? 'folded' : 'open'); } catch { /* */ }
+        pintarPliegue();
     });
+    pintarPliegue();
 
     // Notificaciones
     const slot = $('#notif-slot', root);
@@ -165,7 +187,6 @@ export function renderShell(root, { onLogout }) {
         if (pulse.notifications_unread > 0) {
             bell.insertAdjacentHTML('beforeend', `<span class="badge-dot">${Math.min(pulse.notifications_unread, 99)}</span>`);
         }
-        $('#online-pill span:last-child', root).textContent = `${pulse.online_count || 1} en línea`;
         if (previo && pulse.notifications_unread > previo.notifications_unread && previo.server_time) {
             toast('Tienes una notificación nueva', 'info', 2600);
         }
@@ -190,6 +211,4 @@ export function setActiveNav(path) {
         if (path.startsWith(a.dataset.path)) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     });
-    const search = document.querySelector('#global-search input');
-    if (search && !path.startsWith('/biblioteca')) search.value = '';
 }

@@ -1,10 +1,11 @@
 /** Inicio: el asistente ocupa la columna derecha (donde estaba el chat global). */
 
 import { api } from '../core/api.js';
-import { $, html, on, setHtml, timeAgo } from '../core/dom.js';
+import { $, html, on, setHtml } from '../core/dom.js';
 import { go } from '../core/router.js';
 import { store } from '../core/store.js';
-import { avatar, countBadge, empty, skeletonRows } from '../ui/components.js';
+import { typeLabel } from '../data/categories.js';
+import { countBadge, empty, skeletonRows } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { mountAssistant } from './assistant.js';
 import { bindDocActions, docRow, uploadDialog } from './library.js';
@@ -35,7 +36,7 @@ export async function homeView(root, _params, signal) {
                 <div class="shortcuts">
                     <button class="shortcut" data-action="upload"><span class="shortcut__icon">${icon('upload')}</span><span><strong>Subir documento</strong><span>Comparte con tu facultad</span></span></button>
                     <a class="shortcut shortcut--orange" href="#/grupos"><span class="shortcut__icon">${icon('users')}</span><span><strong>Grupos de trabajo</strong><span>Tareas, archivos y chat</span></span></a>
-                    <a class="shortcut" href="#/mensajes/global"><span class="shortcut__icon">${icon('globe')}</span><span><strong>Chat global UFG</strong><span>Ahora vive en Mensajes</span></span></a>
+                    <a class="shortcut" href="#/anotaciones"><span class="shortcut__icon">${icon('note')}</span><span><strong>Mi espacio</strong><span>Tus notas y archivos</span></span></a>
                 </div>
                 <section class="panel">
                     <div class="panel__head"><h2>Recién compartido</h2><a class="btn btn--ghost btn--sm" href="#/biblioteca">Ver la biblioteca</a></div>
@@ -44,7 +45,7 @@ export async function homeView(root, _params, signal) {
                 <div class="split">
                     <section class="panel"><div class="panel__head"><h3>Tus grupos</h3><a class="btn btn--ghost btn--sm" href="#/grupos">Todos</a></div>
                         <div class="mini-list" data-slot="groups"></div></section>
-                    <section class="panel"><div class="panel__head"><h3>Mensajes recientes</h3><a class="btn btn--ghost btn--sm" href="#/mensajes">Abrir</a></div>
+                    <section class="panel"><div class="panel__head"><h3>Tus guardados</h3><a class="btn btn--ghost btn--sm" href="#/biblioteca?scope=saved">Ver todos</a></div>
                         <div class="mini-list" data-slot="convs"></div></section>
                 </div>
             </div>
@@ -74,7 +75,7 @@ export async function homeView(root, _params, signal) {
     async function cargarResumen() {
         try {
             const [stats, grupos, convs] = await Promise.all([
-                api.get('/api/user/stats'), api.get('/api/groups'), api.get('/api/conversations'),
+                api.get('/api/user/stats'), api.get('/api/groups'), api.get('/api/resources?scope=saved&limit=4'),
             ]);
             setHtml($('[data-slot="stats"]', root), html`
                 <span><strong>${stats.library_size}</strong>documentos en la biblioteca</span>
@@ -86,19 +87,18 @@ export async function homeView(root, _params, signal) {
                     <span style="min-width:0"><span class="mini-item__title">${g.name}</span><span class="mini-item__meta" style="display:block">${g.open_tasks} ${g.open_tasks === 1 ? 'tarea abierta' : 'tareas abiertas'}</span></span>
                     ${countBadge(g.unread)}</a>`)}`
                 : empty({ icon: 'users', title: 'Sin grupos aún', text: 'Crea uno para organizar un proyecto con tus compañeros.' }));
-            setHtml($('[data-slot="convs"]', root), convs.conversations.length ? html`${convs.conversations.slice(0, 4).map((c) => html`
-                <a class="mini-item" href="#/mensajes/dm/${c.user.id}">${avatar(c.user, 'sm')}
-                    <span style="min-width:0;flex:1"><span class="mini-item__title">${c.user.name}</span>
-                    <span class="mini-item__meta" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.last_message ? c.last_message.message : 'Sin mensajes todavía'}</span></span>
-                    ${c.unread ? countBadge(c.unread) : html`<span class="mini-item__meta">${c.last_message ? timeAgo(c.last_message.timestamp) : ''}</span>`}</a>`)}`
-                : empty({ icon: 'chat', title: 'Sin conversaciones', text: 'Agrega amigos en Mensajes para escribirles.' }));
+            setHtml($('[data-slot="convs"]', root), convs.resources.length ? html`${convs.resources.map((r) => html`
+                <a class="mini-item" href="#/biblioteca?scope=saved"><span class="file-icon file-icon--sm" data-ext="${r.extension}">${typeLabel(r.extension)}</span>
+                    <span style="min-width:0;flex:1"><span class="mini-item__title">${r.title}</span>
+                    <span class="mini-item__meta" style="display:block">${r.category}</span></span></a>`)}`
+                : empty({ icon: 'bookmark', title: 'Nada guardado aún', text: 'Usa el marcador de un documento para tenerlo a mano aquí.' }));
         } catch { /* el resumen es secundario */ }
     }
 
     bindDocActions(root, (id) => recursos.find((r) => r.id === id), signal, cargarRecientes);
     on(root, 'click', '[data-action="upload"]', () => uploadDialog(null, cargarRecientes), signal);
     store.on('pulse', ({ pulse, previo }) => {
-        if (pulse.dm_unread_total !== previo?.dm_unread_total || pulse.groups_unread_total !== previo?.groups_unread_total) cargarResumen();
+        if (pulse.groups_unread_total !== previo?.groups_unread_total) cargarResumen();
     }, signal);
 
     cargarRecientes();

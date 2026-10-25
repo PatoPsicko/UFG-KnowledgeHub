@@ -8,23 +8,17 @@ por segundo de respuesta pequeña, algo que SQLite atiende sin esfuerzo.
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from flask import Blueprint, jsonify
 from sqlalchemy import func
 
 from ..errors import ApiError
 from ..extensions import db
-from ..models import ChatMessage, DirectMessage, Notification, User, utcnow
-from ..utils import contact_ids, current_user, login_required, query_int
+from ..models import ChatMessage, DirectMessage, Notification, utcnow
+from ..utils import current_user, login_required, query_int
 from .groups import unread_counts
-from .social import ONLINE_WINDOW
 
 bp = Blueprint('realtime', __name__, url_prefix='/api')
 
-# last_seen se escribe como mucho cada 30 s por usuario para no generar
-# escrituras en cada sondeo.
-LAST_SEEN_RESOLUTION = timedelta(seconds=30)
 
 
 @bp.get('/notifications')
@@ -62,20 +56,12 @@ def mark_all_read():
 def pulse():
     viewer = current_user()
     ahora = utcnow()
-    if not viewer.last_seen or ahora - viewer.last_seen > LAST_SEEN_RESOLUTION:
-        viewer.last_seen = ahora
-        db.session.commit()
-
     dm = dict(db.session.query(DirectMessage.sender_id, func.count(DirectMessage.id))
               .filter(DirectMessage.receiver_id == viewer.id, DirectMessage.read.is_(False))
               .group_by(DirectMessage.sender_id).all())
     ultimo_global = db.session.query(func.max(ChatMessage.id)).scalar() or 0
     global_sin_leer = ChatMessage.query.filter(ChatMessage.id > (viewer.chat_last_read_id or 0),
                                                ChatMessage.user_id != viewer.id).count()
-    limite = ahora - ONLINE_WINDOW
-    en_linea = db.session.query(User.id).filter(User.last_seen >= limite).all()
-    en_linea_ids = {u.id for u in en_linea}
-    amigos = set(contact_ids(viewer.id))
     grupos = unread_counts(viewer.id)
 
     return jsonify({
@@ -86,7 +72,5 @@ def pulse():
         'global_unread': global_sin_leer,
         'groups_unread': {str(k): v for k, v in grupos.items()},
         'groups_unread_total': sum(grupos.values()),
-        'online_count': len(en_linea_ids),
-        'friends_online': sorted(amigos & en_linea_ids),
         'server_time': ahora.isoformat() + 'Z',
     }), 200

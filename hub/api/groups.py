@@ -244,7 +244,7 @@ def list_members(group_id: int):
 @bp.post('/<int:group_id>/invite')
 @login_required
 def invite(group_id: int):
-    """Cualquier miembro puede sumar a sus amigos; el líder, a cualquier usuario."""
+    """Cualquier miembro puede sumar a otro estudiante al grupo."""
     viewer = current_user()
     grupo, _ = _member_or_403(group_id)
     invitado_id = parse_int(json_body().get('user_id'), 'usuario')
@@ -253,8 +253,6 @@ def invite(group_id: int):
         raise ApiError('Usuario no encontrado.', 404)
     if membership(group_id, invitado_id):
         raise ApiError(f'{invitado.name} ya es miembro del grupo.', 409)
-    if grupo.owner_id != viewer.id and not are_contacts(viewer.id, invitado_id):
-        raise ApiError('Sólo puedes agregar a tus amigos.', 403)
     db.session.add(GroupMember(group_id=group_id, user_id=invitado_id))
     notify(invitado_id, 'group_invite', 'Te agregaron a un grupo',
            f'{viewer.name} te agregó al grupo «{grupo.name}»', group_id)

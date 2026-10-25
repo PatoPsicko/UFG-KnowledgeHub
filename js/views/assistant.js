@@ -10,7 +10,7 @@ import { $, autoGrow, html, on, raw, setHtml } from '../core/dom.js';
 import { renderMarkdown } from '../core/markdown.js';
 import { go } from '../core/router.js';
 import { store } from '../core/store.js';
-import { empty } from '../ui/components.js';
+import { bindFilter, empty, searchToggle } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { confirmDialog, openDialog, toast } from '../ui/overlay.js';
 
@@ -90,7 +90,7 @@ function intro(compact) {
         <h3>${scope ? 'Pregunta lo que quieras sobre este documento' : 'Pregúntale a la biblioteca'}</h3>
         <p>${scope ? 'Puedo resumirlo, explicarte partes o hacerte preguntas de repaso, citando las páginas.'
         : 'Busco en los documentos que puedes ver y te respondo citando de dónde sale cada dato.'}</p>
-        ${compact ? '' : html`<p style="margin-top:10px">Si no hay material sobre el tema, te respondo con conocimiento general y te lo aviso.</p>`}
+        ${compact ? '' : html`<p style="margin-top:10px">Sólo hablo de temas de estudio: materias, apuntes, tareas y el material de la UFG 📚</p>`}
     </div>`;
 }
 
@@ -259,7 +259,7 @@ export async function assistantView(root, _params, signal) {
     setHtml(root, html`<div class="page page--wide page--flush">
         <div class="assistant-page">
             <aside class="history">
-                <button class="btn btn--secondary btn--block" data-action="new-conv">${icon('plus')}Nueva conversación</button>
+                <div class="history__bar"><button class="btn btn--secondary" data-action="new-conv">${icon('plus')}Nueva conversación</button>${searchToggle('Buscar en tus chats')}</div>
                 <div class="history__list" data-slot="history"></div>
             </aside>
             <div data-slot="desk" style="min-height:0"></div>
@@ -282,6 +282,7 @@ export async function assistantView(root, _params, signal) {
 
     const desk = mountAssistant($('[data-slot="desk"]', root), { signal, onChange: cargarHistorial });
 
+    bindFilter(root, '[data-slot="history"]', '.history__item', signal);
     on(root, 'click', '[data-action="new-conv"]', () => { sesion.docScope = null; desk.reiniciar(); }, signal);
     on(lista, 'click', '[data-delete]', async (e, b) => {
         e.stopPropagation();

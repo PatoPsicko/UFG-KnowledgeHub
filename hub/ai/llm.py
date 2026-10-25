@@ -211,7 +211,9 @@ class Router:
 
     # --- HTTP ---------------------------------------------------------------
     def _request(self, provider: Provider, path: str, payload: dict, *, stream: bool = False):
-        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        # Sin User-Agent propio, Cloudflare (delante de Groq) rechaza a urllib con error 1010.
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json',
+                   'User-Agent': 'UFG-KnowledgeHub/1.0 (+https://github.com/PatoPsicko/UFG-KnowledgeHub)'}
         if provider.api_key:
             headers['Authorization'] = f'Bearer {provider.api_key}'
         if provider.name == 'openrouter':

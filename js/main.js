@@ -17,7 +17,6 @@ import { renderAuth } from './views/auth.js';
 import { groupsView } from './views/groups.js';
 import { homeView } from './views/home.js';
 import { libraryView } from './views/library.js';
-import { messagesView } from './views/messages.js';
 import { notesView } from './views/notes.js';
 import { profileView } from './views/profile.js';
 import { securityView } from './views/security.js';
@@ -25,15 +24,19 @@ import { renderShell, setActiveNav } from './views/shell.js';
 
 const root = document.getElementById('app-root');
 
+// Tema guardado (o el del sistema) antes de pintar nada.
+try {
+    const tema = localStorage.getItem('theme')
+        || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = tema;
+} catch { /* sin almacenamiento */ }
+
 router.route('/inicio', homeView, { title: 'Inicio' });
 router.route('/biblioteca', libraryView, { title: 'Biblioteca' });
 router.route('/asistente', assistantView, { title: 'Asistente' });
-router.route('/mensajes', messagesView, { title: 'Mensajes' });
-router.route('/mensajes/:mode', messagesView, { title: 'Mensajes' });
-router.route('/mensajes/:mode/:id', messagesView, { title: 'Mensajes' });
 router.route('/grupos', groupsView, { title: 'Grupos' });
 router.route('/grupos/:id', groupsView, { title: 'Grupo' });
-router.route('/anotaciones', notesView, { title: 'Anotaciones' });
+router.route('/anotaciones', notesView, { title: 'Mi espacio' });
 router.route('/perfil', profileView, { title: 'Mi perfil' });
 router.route('/seguridad', securityView, { title: 'Seguridad' });
 

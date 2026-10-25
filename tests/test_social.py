@@ -82,13 +82,3 @@ def test_global_chat_incremental_and_unread(make_user):
     assert beto.get('/api/pulse').get_json()['global_unread'] == 0
     assert beto.delete(f'/api/chat/messages/{primero}').status_code == 403
     assert ana.delete(f'/api/chat/messages/{primero}').status_code == 200
-
-
-def test_presence(make_user):
-    ana, beto = make_user('Ana'), make_user('Beto')
-    befriend(ana, beto)
-    beto.get('/api/pulse')
-    pulso = ana.get('/api/pulse').get_json()
-    assert beto.id in pulso['friends_online']
-    assert pulso['online_count'] == 2
-    assert ana.get(f'/api/users/{beto.id}/profile').get_json()['user']['online'] is True

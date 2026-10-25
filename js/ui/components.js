@@ -1,18 +1,16 @@
 /** Piezas de interfaz reutilizables (devuelven HTML seguro). */
 
 import { html, initials, raw } from '../core/dom.js';
-import { store } from '../core/store.js';
 import { icon } from './icons.js';
 
 export function avatar(user, size = '') {
     if (!user) return html`<span class="avatar ${size ? `avatar--${size}` : ''}">?</span>`;
-    const online = user.online ?? store.isOnline(user.id);
     const color = /^#[0-9a-f]{6}$/i.test(user.profile_color || '') ? user.profile_color : '#0B6FCB';
     const cls = `avatar${size ? ` avatar--${size}` : ''}`;
     const contenido = user.avatar_url
         ? html`<img src="${user.avatar_url}" alt="" loading="lazy">`
         : html`${initials(user.name)}`;
-    return html`<span class="${cls}" style="background:${color}" data-online="${online ? 'true' : 'false'}" title="${user.name}">${contenido}</span>`;
+    return html`<span class="${cls}" style="background:${color}" title="${user.name}">${contenido}</span>`;
 }
 
 export function empty({ icon: name = 'folder', title, text = '', action = '' }) {
@@ -67,4 +65,40 @@ export function errorBox(err) {
     const findings = err?.details?.findings?.filter((f) => f.severity !== 'info') || [];
     return html`<div class="form-error" role="alert">${icon('alert')}<div>${err?.message || String(err)}
         ${findings.length > 1 ? html`<ul>${findings.map((f) => html`<li>${f.message}</li>`)}</ul>` : ''}</div></div>`;
+}
+
+/**
+ * Lupa que despliega un buscador para filtrar una lista ya pintada.
+ * `searchToggle(texto)` devuelve el HTML; `bindFilter(root, scope, itemSel, signal)`
+ * oculta los elementos cuyo texto no contiene lo escrito (también tras repintar).
+ */
+export function searchToggle(placeholder = 'Buscar') {
+    return html`<span class="search-toggle">
+        <input class="input search-toggle__input" type="search" data-search-input placeholder="${placeholder}" aria-label="${placeholder}">
+        <button type="button" class="icon-btn" data-search-toggle aria-label="${placeholder}" title="${placeholder}">${icon('search')}</button>
+    </span>`;
+}
+
+export function bindFilter(root, scope, itemSel, signal) {
+    const box = root.querySelector('.search-toggle');
+    const cont = root.querySelector(scope);
+    if (!box || !cont) return;
+    const input = box.querySelector('[data-search-input]');
+    const boton = box.querySelector('[data-search-toggle]');
+    const aplicar = () => {
+        const q = input.value.trim().toLowerCase();
+        cont.querySelectorAll(itemSel).forEach((el) => {
+            el.hidden = !!q && !el.textContent.toLowerCase().includes(q);
+        });
+    };
+    boton.addEventListener('click', () => {
+        const abierto = box.classList.toggle('is-open');
+        if (abierto) input.focus();
+        else { input.value = ''; aplicar(); }
+    }, { signal });
+    input.addEventListener('input', aplicar, { signal });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') boton.click(); }, { signal });
+    const obs = new MutationObserver(aplicar);
+    obs.observe(cont, { childList: true, subtree: true });
+    signal?.addEventListener('abort', () => obs.disconnect());
 }

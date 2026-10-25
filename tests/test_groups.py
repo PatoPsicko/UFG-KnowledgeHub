@@ -22,13 +22,10 @@ def test_invite_rules(make_user):
     ana, beto, carla, dani = (make_user(n) for n in ('Ana', 'Beto', 'Carla', 'Dani'))
     befriend(ana, beto)
     gid = _grupo(ana, member_ids=[beto.id])
-    # Un miembro sólo puede sumar a sus amigos; el líder, a cualquiera.
-    assert beto.post(f'/api/groups/{gid}/invite', {'user_id': carla.id}).status_code == 403
-    befriend(beto, carla)
+    # Cualquier miembro puede sumar a otro estudiante; un externo no.
     assert beto.post(f'/api/groups/{gid}/invite', {'user_id': carla.id}).status_code == 201
-    assert ana.post(f'/api/groups/{gid}/invite', {'user_id': dani.id}).status_code == 201
-    assert ana.post(f'/api/groups/{gid}/invite', {'user_id': dani.id}).status_code == 409
-    assert dani.post(f'/api/groups/{gid}/invite', {'user_id': ana.id}).status_code == 409
+    assert ana.post(f'/api/groups/{gid}/invite', {'user_id': carla.id}).status_code == 409
+    assert dani.post(f'/api/groups/{gid}/invite', {'user_id': dani.id}).status_code == 403
 
 
 def test_tasks_lifecycle(make_user):

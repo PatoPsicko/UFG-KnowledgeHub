@@ -3,7 +3,7 @@
 import { api } from '../core/api.js';
 import { $, debounce, fileSize, html, longDate, on, raw, setHtml, timeAgo } from '../core/dom.js';
 import { store } from '../core/store.js';
-import { AREAS, PREVIEWABLE, SUGGESTED_TAGS, areaOf, spineVar, typeLabel } from '../data/categories.js';
+import { AREAS, PREVIEWABLE, SUGGESTED_TAGS, areaOf, typeLabel } from '../data/categories.js';
 import { avatar, empty, scanBadge, skeletonRows } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { closeDrawer, confirmDialog, openDialog, openDrawer, toast } from '../ui/overlay.js';
@@ -11,8 +11,8 @@ import { askAboutDocument } from './assistant.js';
 
 /* --- Fila de documento (también la usa Inicio) --------------------------------- */
 export function docRow(r) {
-    return html`<article class="doc" style="${spineVar(r.category)}" data-id="${r.id}">
-        <span class="doc__type">${typeLabel(r.extension)}</span>
+    return html`<article class="doc" data-id="${r.id}">
+        <span class="doc__type" data-ext="${r.extension}">${typeLabel(r.extension)}</span>
         <div class="doc__main">
             <button class="doc__title" data-action="open" title="${r.title}">${r.title}</button>
             <div class="doc__meta">
@@ -75,8 +75,8 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
     }
     const area = areaOf(r.category);
     const puedePrevisualizar = PREVIEWABLE.has(r.extension) && r.scan_status !== 'blocked';
-    setHtml(drawer, html`<div class="drawer__head" style="${spineVar(r.category)}">
-            <span class="doc__type">${typeLabel(r.extension)}</span>
+    setHtml(drawer, html`<div class="drawer__head">
+            <span class="doc__type" data-ext="${r.extension}">${typeLabel(r.extension)}</span>
             <div style="flex:1;min-width:0"><h2 style="font-size:20px">${r.title}</h2>
                 <p style="color:var(--ink-3);font-size:14px;margin-top:2px">${area.name}</p></div>
             <button class="icon-btn" data-close aria-label="Cerrar">${icon('x')}</button>

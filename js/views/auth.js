@@ -20,7 +20,6 @@ function shelf() {
 
 function loginForm() {
     return html`<form class="auth__form" id="login-form" novalidate>
-        <img src="img/logo_ufg.png" alt="Universidad Francisco Gavidia">
         <h2>Inicia sesión</h2>
         <p>Entra con tu correo para ver la biblioteca, tus grupos y tus mensajes.</p>
         <label class="field"><span class="field__label">Correo</span>
@@ -37,7 +36,6 @@ function loginForm() {
 function registerForm() {
     const colores = ['#0B6FCB', '#F08A0B', '#2E7D6B', '#B5487A', '#6B4FA3', '#C2453A', '#12325A'];
     return html`<form class="auth__form" id="register-form" novalidate>
-        <img src="img/logo_ufg.png" alt="Universidad Francisco Gavidia">
         <h2>Crea tu cuenta</h2>
         <p>Comparte material con tu facultad y estudia con el asistente.</p>
         <label class="field"><span class="field__label">Nombre completo</span>
@@ -62,7 +60,7 @@ export function renderAuth(root, { onLogin }) {
     const { signal } = controller;
     setHtml(root, html`<div class="auth">
         <section class="auth__side">
-            <div class="auth__brand"><b>UFG</b> Knowledge Hub</div>
+            <div class="auth__brand"><img src="img/logo_hub.png" alt="UFG Knowledge Hub"></div>
             <div>
                 <h1>Apuntes, guías y proyectos de toda la UFG, en un solo lugar.</h1>
                 <p>Una biblioteca que arman los propios estudiantes, con grupos de trabajo, mensajes y un asistente que responde citando los documentos.</p>

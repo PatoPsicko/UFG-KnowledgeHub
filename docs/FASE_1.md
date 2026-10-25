@@ -9,9 +9,9 @@ Avance de octubre de 2026 sobre la versión que corría con Ollama en local.
 | El modelo local respondía «plano» y no se enfocaba en los documentos | Router de modelos gratuitos en la nube (Gemini, Groq, OpenRouter) con Ollama de respaldo y cambio automático cuando uno se queda sin cuota. Prompt nuevo con catálogo de documentos, extractos numerados y citas `[n]` clicables, más el modo «preguntar sobre este documento». Ver `ASISTENTE_IA.md`. |
 | Un modelo que vigile lo que suben los alumnos (antivirus + «segurata») | Tres barreras: análisis estático (macros, JavaScript en PDF, ejecutables disfrazados, ZIP peligrosos...), antivirus del sistema (Defender o ClamAV) y un segundo modelo de IA que revisa el contenido en paralelo al asistente, con Prompt Guard contra instrucciones ocultas. Incluye panel de Seguridad para administradores. Ver `SEGURIDAD.md`. |
 | Rediseño más moderno, sin «estilo IA», con colores y logo UFG | Frontend reescrito con un sistema de diseño propio: azul y naranja del logotipo, tipografía Jost (eco de las letras del logo) y Source Sans 3. Cada documento lleva un «lomo» de color según su área, como libros en una estantería. Se quitó Tailwind por CDN. |
-| El chatbot donde estaba el chat global; el chat global junto a los mensajes directos | En Inicio, el asistente ocupa la columna derecha. El chat global UFG queda fijado arriba en **Mensajes**, junto a las conversaciones con amigos. |
+| El chatbot donde estaba el chat global; el chat global junto a los mensajes directos | En Inicio, el asistente ocupa la columna derecha. En la segunda ronda se quitaron de la interfaz el chat global, los amigos y los mensajes directos (ver abajo): la comunicación queda dentro de los grupos. |
 | ~20 personas a la vez, gratis y sin saturar la PC | `python wsgi.py` (waitress, 32 hilos) + SQLite en modo WAL + un único «pulso» ligero cada 4 s. Con la IA en la nube la PC sólo sirve la web. Para compartir: túnel gratuito de Cloudflare (`scripts/compartir.ps1`). |
-| Terminar grupos, amigos y mensajes | Amigos: buscar, sugerencias, enviar, aceptar, rechazar, cancelar y eliminar. Conversaciones con no leídos y estado en línea. Grupos: crear con amigos, editar, salir (el liderazgo pasa al siguiente), retirar miembros, eliminar; chat con no leídos; tablero de tareas (pendiente, en progreso, hecha) con responsable y fecha; archivos del grupo revisados por el vigilante. |
+| Terminar grupos, amigos y mensajes | Grupos: crear, editar, salir (el liderazgo pasa al siguiente), retirar miembros, eliminar; cualquier miembro agrega a otro estudiante buscándolo por nombre, correo o carrera; chat con no leídos; tablero de tareas (pendiente, en progreso, hecha) con responsable y fecha; archivos del grupo revisados por el vigilante. Amigos y mensajes directos se retiraron de la interfaz en la segunda ronda. |
 | Flask + SQLite, sin abrir editores de base de datos | Se mantiene. Las tablas y columnas nuevas se crean solas al arrancar (`hub/schema.py`); las tareas de mantenimiento están en `python manage.py`. |
 
 ## Arquitectura
@@ -62,8 +62,8 @@ asistente dependen del proveedor: segundos en la nube; con Ollama local sin GPU,
 unos 25-70 s.
 
 **Manual** — revisado en el navegador a 1440 px y a 375 px (móvil): acceso,
-inicio con asistente, biblioteca con áreas y vista previa, mensajes (chat global
-y privados), amigos, grupos (chat y tablero), anotaciones, perfil y Seguridad.
+inicio con asistente, biblioteca con áreas y vista previa, grupos (chat y
+tablero), Mi espacio, perfil, modo oscuro y Seguridad.
 El vigilante se probó con un `.exe` renombrado a `.pdf` (bloqueado), un `.zip`
 falso (bloqueado) y un `.txt` normal (pasó las tres barreras: Defender + IA).
 
@@ -75,7 +75,21 @@ falso (bloqueado) y un `.txt` normal (pasó las tres barreras: Defender + IA).
 4. Sube un archivo normal: aparece «En revisión» y luego la notificación «Archivo publicado».
 5. Sube un `.exe` renombrado a `.pdf`: se rechaza con el motivo.
 6. Con una cuenta de `ADMIN_EMAILS`: sección **Seguridad** con el informe de las tres barreras.
-7. Mensajes → Chat global con dos cuentas abiertas a la vez: los mensajes llegan en ~4 s.
+7. Grupos → abre un grupo con dos cuentas a la vez: los mensajes del chat llegan en ~4 s.
+
+## Segunda ronda de ajustes
+
+Cambios hechos después de la primera revisión, dentro de la misma fase:
+
+| Área | Cambio |
+|---|---|
+| Interfaz social | Se quitaron de la interfaz la sección **Mensajes** (chat global y privados), los amigos y el estado «en línea». El pulso ya no escribe `last_seen` en cada sondeo. Las rutas del backend siguen existiendo por compatibilidad con `seed_test_data.py`. |
+| Grupos | Cualquier miembro agrega a otro estudiante (antes sólo a sus amigos). Buscador en la lista de grupos. |
+| Asistente | Sólo habla de temas de estudio: ante preguntas ajenas (deportes, farándula...) el modelo responde un marcador `[FUERA_DE_TEMA]` y el servidor lo cambia por un mensaje amable. Respuestas con algunos emojis. Buscador en el historial de chats. |
+| Router de IA | Se envía un `User-Agent` propio: sin él Cloudflare (delante de Groq) rechazaba las peticiones con el error 1010. |
+| Mi espacio | «Anotaciones» pasa a llamarse **Mi espacio**: notas tipo post-it que se abren en un diálogo, archivos personales y buscador. |
+| Diseño | Modo oscuro con interruptor en el menú (recuerda la elección o usa la del sistema). Inicio muestra «Tus guardados» en lugar de los mensajes recientes. |
+| Arranque | `iniciar.bat` / `iniciar.ps1`: doble clic crea el entorno, instala dependencias, pide la clave de Groq la primera vez y arranca el servidor. |
 
 ## Pendiente para próximas fases (propuestas)
 

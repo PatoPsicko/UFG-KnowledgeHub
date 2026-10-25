@@ -123,18 +123,35 @@ def chat_stream():
                                                          'Inténtalo en un momento.'})
                 return
             try:
-                if not ctx.fragmentos and not ctx.catalogo:
-                    aviso = f'{assistant.AVISO_GENERAL}\n\n'
-                    partes.append(aviso)
-                    yield linea({'type': 'token', 'content': aviso})
+                # Los primeros caracteres se retienen para detectar el marcador de
+                # «fuera de tema» antes de mostrar nada al estudiante.
+                general = not ctx.fragmentos and not ctx.catalogo
+                retenido = ''
+                decidido = False
                 modelo_avisado = False
                 for trozo in llm.router().chat_stream(assistant.build_messages(ctx), temperature=0.2, meta=meta):
                     if not modelo_avisado and meta:
                         modelo_avisado = True
                         yield linea({'type': 'model', 'model': meta.get('model'), 'provider': meta.get('provider'),
                                      'label': meta.get('label')})
-                    partes.append(trozo)
-                    yield linea({'type': 'token', 'content': trozo})
+                    if decidido:
+                        partes.append(trozo)
+                        yield linea({'type': 'token', 'content': trozo})
+                        continue
+                    retenido += trozo
+                    if assistant.MARCADOR_FUERA in retenido:
+                        break
+                    if len(retenido) < len(assistant.MARCADOR_FUERA) + 4:
+                        continue
+                    decidido = True
+                    if general and not retenido.lstrip().startswith(assistant.AVISO_GENERAL[:12]):
+                        retenido = f'{assistant.AVISO_GENERAL}\n\n{retenido}'
+                    partes.append(retenido)
+                    yield linea({'type': 'token', 'content': retenido})
+                if not decidido:
+                    texto = assistant.fuera_de_tema() if assistant.MARCADOR_FUERA in retenido else retenido
+                    partes.append(texto)
+                    yield linea({'type': 'token', 'content': texto})
             except llm.LLMError as exc:
                 app.logger.error('Asistente (stream): %s', exc)
                 yield linea({'type': 'error', 'message': 'El modelo de IA no está respondiendo en este momento. '

@@ -2,14 +2,21 @@
 
 Plataforma donde los estudiantes de la Universidad Francisco Gavidia comparten
 material entre facultades: biblioteca común, asistente de estudio con IA,
-grupos de trabajo, amigos y mensajes, chat global y anotaciones privadas. Cada
-archivo que se sube pasa por un vigilante de seguridad antes de publicarse.
+grupos de trabajo (chat, tablero de tareas y archivos) y «Mi espacio» con notas
+y archivos privados. Cada archivo que se sube pasa por un vigilante de seguridad
+antes de publicarse.
 
 **Fase 1** (octubre de 2026): IA en la nube con varios proveedores gratuitos,
-vigilante de archivos, rediseño completo y la parte social terminada. Detalle en
-[`docs/FASE_1.md`](docs/FASE_1.md).
+vigilante de archivos, rediseño completo con modo oscuro y grupos de trabajo
+terminados. Detalle en [`docs/FASE_1.md`](docs/FASE_1.md).
 
 ## Puesta en marcha
+
+**Lo más fácil:** doble clic en `iniciar.bat`. La primera vez crea el entorno,
+instala las dependencias y pide la clave gratuita de Groq; después arranca el
+servidor directamente.
+
+A mano:
 
 ```bash
 python -m venv .venv
