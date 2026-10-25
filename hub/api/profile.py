@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 
@@ -13,11 +14,27 @@ from ..models import Contact, GroupMember, PrivateResource, Resource, SavedResou
 from ..security import pipeline
 from ..storage import IMAGE_EXTENSIONS, delete_upload, folder_for, save_upload
 from ..utils import are_contacts, clean_text, current_user, form_or_json, json_body, login_required, user_group_ids
+from .auth import validate_password
 from .social import _relation, is_online, user_card
 
 bp = Blueprint('profile', __name__, url_prefix='/api')
 
 _RE_COLOR = re.compile(r'#[0-9A-Fa-f]{6}')
+
+# Preferencias de la interfaz que se guardan por usuario, con sus valores
+# permitidos (el primero es el valor por defecto). Así se conservan al entrar
+# desde otro equipo o desde el celular.
+PREFERENCIAS = {
+    'theme': ('system', 'light', 'dark'),
+    'motion': ('system', 'reduced', 'full'),
+    'library_sort': ('recent', 'popular', 'title'),
+}
+
+
+def preferences_of(user: User) -> dict:
+    guardadas = user.prefs()
+    return {clave: guardadas.get(clave) if guardadas.get(clave) in valores else valores[0]
+            for clave, valores in PREFERENCIAS.items()}
 
 
 @bp.get('/user/stats')
@@ -81,12 +98,34 @@ def change_password():
     data = json_body()
     if not bcrypt.check_password_hash(user.password, data.get('current_password') or ''):
         raise ApiError('La contraseña actual no es correcta.', 400, 'wrong_password')
-    nueva = data.get('new_password') or ''
-    if len(nueva) < 8:
-        raise ApiError('La nueva contraseña debe tener al menos 8 caracteres.', 400, 'weak_password')
+    nueva = data.get('new_password') if isinstance(data.get('new_password'), str) else ''
+    validate_password(nueva, user.email)
     user.password = bcrypt.generate_password_hash(nueva).decode('utf-8')
     db.session.commit()
     return jsonify({'message': 'Contraseña actualizada.'}), 200
+
+
+@bp.get('/profile/preferences')
+@login_required
+def get_preferences():
+    return jsonify({'preferences': preferences_of(current_user())}), 200
+
+
+@bp.put('/profile/preferences')
+@login_required
+def update_preferences():
+    user = current_user()
+    nuevas = user.prefs()
+    for clave, valor in json_body().items():
+        if clave not in PREFERENCIAS:
+            raise ApiError(f'Preferencia desconocida: {clave}.', 400, 'invalid_field', {'field': clave})
+        if valor not in PREFERENCIAS[clave]:
+            raise ApiError(f'Valor no válido para «{clave}».', 400, 'invalid_field',
+                           {'field': clave, 'allowed': list(PREFERENCIAS[clave])})
+        nuevas[clave] = valor
+    user.preferences = json.dumps(nuevas)
+    db.session.commit()
+    return jsonify({'message': 'Preferencias guardadas.', 'preferences': preferences_of(user)}), 200
 
 
 @bp.post('/profile/picture')
@@ -94,10 +133,7 @@ def change_password():
 def upload_picture():
     user = current_user()
     archivo = request.files.get('file')
-    stored, ruta, _ = save_upload(archivo, 'avatar', allowed=IMAGE_EXTENSIONS)
-    if os.path.getsize(ruta) > 4 * 1024 * 1024:
-        os.remove(ruta)
-        raise ApiError('La foto no puede superar los 4 MB.', 400)
+    stored, ruta, _ = save_upload(archivo, 'avatar', allowed=IMAGE_EXTENSIONS, user_id=user.id)
     check = pipeline.check_upload(ruta, archivo.filename, 'avatar', user.id)
     anterior = user.profile_picture
     user.profile_picture = stored

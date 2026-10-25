@@ -5,6 +5,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
+from .. import storage
 from ..ai import index, llm
 from ..errors import ApiError
 from ..extensions import db
@@ -19,6 +20,9 @@ bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 @admin_required
 def overview():
     estados = dict(db.session.query(FileScan.status, func.count(FileScan.id)).group_by(FileScan.status).all())
+    en_cuarentena = [s for s in FileScan.query.filter(FileScan.status.in_(('review', 'blocked')),
+                                                      FileScan.reviewed_by.is_(None)).all()
+                     if pipeline.awaiting_decision(s)]
     motor = antivirus.engine()
     return jsonify({
         'users': User.query.count(),
@@ -28,6 +32,8 @@ def overview():
         'scans': estados,
         'blocked_hashes': BlockedHash.query.count(),
         'scan_queue': pipeline.pending_count(),
+        'quarantine': len(en_cuarentena),
+        'storage': storage.stats(),
         'antivirus': motor[0] if motor else None,
         'ai': llm.router().status(),
         'index': index.indice().estadisticas(),
@@ -39,11 +45,16 @@ def overview():
 def list_scans():
     consulta = FileScan.query
     estado = request.args.get('status')
-    if estado:
+    if estado == 'quarantine':
+        consulta = consulta.filter(FileScan.status.in_(('review', 'blocked')), FileScan.reviewed_by.is_(None))
+    elif estado:
         consulta = consulta.filter(FileScan.status == estado)
     limite = query_int('limit', 100, minimum=1, maximum=500)
     filas = consulta.order_by(FileScan.id.desc()).limit(limite).all()
-    return jsonify({'scans': [s.to_dict() for s in filas]}), 200
+    escaneos = [{**s.to_dict(), 'awaiting_decision': pipeline.awaiting_decision(s)} for s in filas]
+    if estado == 'quarantine':
+        escaneos = [s for s in escaneos if s['awaiting_decision']]
+    return jsonify({'scans': escaneos}), 200
 
 
 def _scan(scan_id: int) -> FileScan:
@@ -58,7 +69,8 @@ def _scan(scan_id: int) -> FileScan:
 def decide(scan_id: int):
     scan = _scan(scan_id)
     pipeline.admin_decide(scan, (json_body().get('decision') or '').strip(), current_user().id)
-    return jsonify({'message': 'Decisión aplicada.', 'scan': scan.to_dict()}), 200
+    return jsonify({'message': 'Decisión aplicada.',
+                    'scan': {**scan.to_dict(), 'awaiting_decision': pipeline.awaiting_decision(scan)}}), 200
 
 
 @bp.post('/scans/<int:scan_id>/rescan')

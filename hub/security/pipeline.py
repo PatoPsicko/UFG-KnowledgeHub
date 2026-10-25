@@ -7,12 +7,22 @@
                      │  (hilo en segundo plano)
                      ▼
                2. antivirus del sistema ── infectado ──► 'blocked', se borra, huella vetada
-               3. revisión con IA       ── block ─────► 'blocked' (queda en cuarentena)
-                                        ── review ────► 'review' (lo decide un admin)
+               3. revisión con IA       ── block ─────► 'blocked' ─┐ cuarentena: el archivo se
+                                        ── review ────► 'review' ──┘ guarda y un admin decide
+                                        ── sin cuota ─► sigue 'pending' y se reintenta más tarde
                      ▼
-               'clean' ──► se publica y entra al índice del asistente
+               'clean' ──► se publica solo y entra al índice del asistente
 
-Los archivos privados (anotaciones) sólo pasan por las barreras 1 y 2: nadie
+El administrador NO revisa a mano lo que sale limpio: sólo ve en el panel de
+Seguridad lo que quedó en cuarentena (dudoso o peligroso), con el motivo, y lo
+aprueba o lo rechaza. Rechazar borra el archivo y veta su huella SHA-256.
+
+Si la IA no responde (sin cuota o sin red) el archivo no se publica a ciegas:
+se reintenta con esperas crecientes (SCAN_AI_RETRY_MINUTES). Si tras todos
+los intentos sigue sin respuesta, va a cuarentena (SCAN_REQUIRE_AI=1, lo
+normal) o se publica con la nota «sin revisión IA» (SCAN_REQUIRE_AI=0).
+
+Los archivos privados (Mi espacio) sólo pasan por las barreras 1 y 2: nadie
 más los ve, así que no hace falta gastar cuota de IA en ellos.
 """
 
@@ -28,7 +38,7 @@ from dataclasses import dataclass
 from flask import Flask, current_app
 
 from ..ai import specs
-from ..config import env_bool
+from ..config import env_list
 from ..errors import ApiError
 from ..extensions import db
 from ..models import (SCAN_BLOCKED, SCAN_CLEAN, SCAN_PENDING, SCAN_REVIEW, BlockedHash, FileScan,
@@ -39,10 +49,15 @@ from . import ai_review, antivirus, static
 
 log = logging.getLogger(__name__)
 
-# Si la IA no está disponible, ¿se publica igual (False) o espera a un admin (True)?
-REQUIRE_AI = env_bool('SCAN_REQUIRE_AI', False)
+# Minutos de espera antes de cada reintento de la revisión con IA.
+RETRY_MINUTES = [float(m) for m in env_list('SCAN_AI_RETRY_MINUTES', '1,5,15,30,60')]
 
-KIND_LABEL = {'public': 'la biblioteca', 'group': 'tu grupo', 'private': 'tus anotaciones', 'avatar': 'tu perfil'}
+KIND_LABEL = {'public': 'la biblioteca', 'group': 'tu grupo', 'private': 'Mi espacio', 'avatar': 'tu perfil'}
+
+
+def require_ai() -> bool:
+    """¿Un archivo sin revisión de IA espera a un admin (True) o se publica (False)?"""
+    return bool(current_app.config.get('SCAN_REQUIRE_AI', True))
 
 
 @dataclass
@@ -131,6 +146,28 @@ def wait_idle() -> None:
     _cola.join()
 
 
+def _schedule_retry(trabajo: dict, minutos: float) -> None:
+    """Vuelve a encolar el trabajo dentro de `minutos` (temporizador en segundo plano)."""
+    def reencolar():
+        _asegurar_hilo()
+        _cola.put(trabajo)
+    temporizador = threading.Timer(minutos * 60, reencolar)
+    temporizador.daemon = True
+    temporizador.start()
+
+
+def requeue_pending() -> int:
+    """Al arrancar: vuelve a encolar los escaneos que quedaron a medias al apagar el servidor."""
+    filas = FileScan.query.filter(FileScan.status == SCAN_PENDING, FileScan.resource_id.isnot(None)).all()
+    for scan in filas:
+        if not current_app.config.get('BACKGROUND_WORKERS', True):
+            _run({'scan_id': scan.id})
+        else:
+            _asegurar_hilo()
+            _cola.put({'scan_id': scan.id})
+    return len(filas)
+
+
 def pending_count() -> int:
     return _cola.qsize()
 
@@ -141,9 +178,13 @@ def _target(scan: FileScan):
     return db.session.get(modelo, scan.resource_id)
 
 
+def _scope(scan: FileScan) -> int | None:
+    """Subcarpeta del archivo: el grupo, o el dueño en Mi espacio."""
+    return scan.group_id if scan.kind == 'group' else scan.user_id if scan.kind == 'private' else None
+
+
 def _file_path(scan: FileScan) -> str:
-    kind = 'avatar' if scan.kind == 'avatar' else scan.kind
-    return path_for(kind, scan.stored_name, scan.group_id)
+    return path_for(scan.kind, scan.stored_name, _scope(scan))
 
 
 def _run(trabajo: dict) -> None:
@@ -179,15 +220,34 @@ def _run(trabajo: dict) -> None:
     # revisión inicial de los archivos antiguos (gastaría la cuota gratuita en
     # material que ya estaba publicado).
     ia = None
+    sin_ia = False
     if not motivos_block and scan.kind != 'private' and not trabajo.get('legacy') and os.path.exists(ruta):
-        ia = ai_review.review(ruta, scan.original_name or '', trabajo.get('title', ''), trabajo.get('description', ''))
+        titulo, descripcion = trabajo.get('title'), trabajo.get('description')
+        if titulo is None:  # reintento tras reiniciar: se recuperan del recurso
+            titulo = getattr(objetivo, 'title', '') or ''
+            descripcion = getattr(objetivo, 'description', '') or ''
+        ia = ai_review.review(ruta, scan.original_name or '', titulo, descripcion or '')
         scan.ai_report = json.dumps(ia, ensure_ascii=False)
         if ia['verdict'] == 'block':
             motivos_block.append(f"Revisión IA: {ia.get('reason') or 'contenido no permitido'}")
         elif ia['verdict'] == 'review':
             motivos_review.append(f"Revisión IA: {ia.get('reason') or 'requiere revisión'}")
-        elif ia['verdict'] == 'unavailable' and REQUIRE_AI:
-            motivos_review.append('La revisión con IA no estaba disponible.')
+        elif ia['verdict'] == 'unavailable':
+            intentos = (scan.ai_attempts or 0) + 1
+            scan.ai_attempts = intentos
+            if current_app.config.get('BACKGROUND_WORKERS', True) and intentos <= len(RETRY_MINUTES):
+                # Sin cuota o sin red: el archivo sigue «en revisión» y se reintenta.
+                espera = RETRY_MINUTES[intentos - 1]
+                scan.summary = (f'Esperando a la revisión con IA (intento {intentos} de '
+                                f'{len(RETRY_MINUTES) + 1}): {ia.get("reason") or ""}')[:500]
+                db.session.commit()
+                _schedule_retry({**trabajo, 'scan_id': scan.id}, espera)
+                log.warning('Vigilante: IA no disponible para el escaneo %s, reintento en %s min', scan.id, espera)
+                return
+            if require_ai():
+                motivos_review.append('La revisión con IA no estuvo disponible después de varios intentos.')
+            else:
+                sin_ia = True
 
     if motivos_block:
         estado, resumen = SCAN_BLOCKED, '; '.join(motivos_block)
@@ -200,6 +260,8 @@ def _run(trabajo: dict) -> None:
             partes.append(f"antivirus: {av['engine']}")
         if ia and ia.get('model'):
             partes.append(f"IA: {ia['model']}")
+        if sin_ia:
+            partes.append('sin revisión IA (no estuvo disponible)')
         resumen = ' · '.join(partes)
 
     _apply(scan, objetivo, estado, resumen[:500], legacy=trabajo.get('legacy', False),
@@ -224,7 +286,7 @@ def _apply(scan: FileScan, objetivo, estado: str, resumen: str, *, legacy: bool 
     if estado == SCAN_BLOCKED and (malware or by_admin):
         # Malware confirmado o bloqueo manual: se borra el archivo y se veta su huella.
         if scan.kind != 'avatar':
-            delete_upload(scan.kind, scan.stored_name, scan.group_id)
+            delete_upload(scan.kind, scan.stored_name, _scope(scan))
         if scan.sha256 and not db.session.get(BlockedHash, scan.sha256):
             db.session.add(BlockedHash(sha256=scan.sha256, reason=resumen[:300]))
 
@@ -232,16 +294,18 @@ def _apply(scan: FileScan, objetivo, estado: str, resumen: str, *, legacy: bool 
         if estado == SCAN_CLEAN and scan.kind in ('public', 'group'):
             notify(scan.user_id, 'scan_result', 'Archivo publicado',
                    f'«{nombre}» pasó la revisión de seguridad y ya está en {KIND_LABEL[scan.kind]}.', scan.resource_id)
-        elif estado == SCAN_REVIEW:
-            notify(scan.user_id, 'scan_result', 'Archivo en revisión',
-                   f'«{nombre}» quedó pendiente de revisión por un administrador: {resumen}', scan.resource_id)
+        elif estado == SCAN_REVIEW or (estado == SCAN_BLOCKED and not malware and not by_admin):
+            notify(scan.user_id, 'scan_result', 'Archivo en cuarentena',
+                   f'«{nombre}» todavía no se publicó: un administrador lo revisará. Motivo: {resumen}',
+                   scan.resource_id)
         elif estado == SCAN_BLOCKED:
-            notify(scan.user_id, 'scan_result', 'Archivo bloqueado',
+            notify(scan.user_id, 'scan_result', 'Archivo rechazado',
                    f'«{nombre}» no se publicó por seguridad: {resumen}', scan.resource_id)
     if estado != SCAN_CLEAN and not by_admin:
+        titulo = ('Archivo dudoso en cuarentena' if estado == SCAN_REVIEW else
+                  'Malware bloqueado' if malware else 'Archivo peligroso en cuarentena')
         for admin in User.query.filter_by(role='admin').all():
-            notify(admin.id, 'security_alert', 'Archivo para revisar' if estado == SCAN_REVIEW else 'Archivo bloqueado',
-                   f'«{nombre}»: {resumen}', scan.id)
+            notify(admin.id, 'security_alert', titulo, f'«{nombre}»: {resumen}', scan.id)
     db.session.commit()
 
     if scan.kind == 'avatar':
@@ -273,10 +337,16 @@ def admin_decide(scan: FileScan, decision: str, admin_id: int) -> None:
         if not os.path.exists(_file_path(scan)):
             raise ApiError('El archivo ya no está en el servidor; no se puede aprobar.', 409)
         _apply(scan, objetivo, SCAN_CLEAN, 'Aprobado por un administrador.', by_admin=admin_id)
-    elif decision == 'block':
-        _apply(scan, objetivo, SCAN_BLOCKED, 'Bloqueado por un administrador.', by_admin=admin_id)
+    elif decision in ('block', 'reject'):
+        _apply(scan, objetivo, SCAN_BLOCKED, 'Rechazado por un administrador.', by_admin=admin_id)
     else:
-        raise ApiError('Decisión no válida (approve | block).', 400)
+        raise ApiError('Decisión no válida (approve | reject).', 400)
+
+
+def awaiting_decision(scan: FileScan) -> bool:
+    """En cuarentena: dudoso o peligroso, con el archivo guardado y sin decisión de un admin."""
+    return (scan.status in (SCAN_REVIEW, SCAN_BLOCKED) and not scan.reviewed_by and bool(scan.resource_id)
+            and bool(scan.stored_name) and os.path.exists(_file_path(scan)))
 
 
 def rescan(scan: FileScan) -> int:

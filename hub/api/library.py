@@ -140,7 +140,7 @@ def _fields(data: dict, *, partial: bool = False) -> dict:
 def create_resource():
     viewer = current_user()
     campos = _fields(request.form.to_dict())
-    stored, ruta, size = save_upload(request.files.get('file'), 'public')
+    stored, ruta, size = save_upload(request.files.get('file'), 'public', user_id=viewer.id)
     original = request.files['file'].filename
     check = pipeline.check_upload(ruta, original, 'public', viewer.id)
 
@@ -173,7 +173,7 @@ def update_resource(resource_id: int):
     archivo = request.files.get('file')
     nuevo = None
     if archivo and archivo.filename:
-        stored, ruta, size = save_upload(archivo, 'public')
+        stored, ruta, size = save_upload(archivo, 'public', user_id=viewer.id)
         check = pipeline.check_upload(ruta, archivo.filename, 'public', viewer.id)
         anterior = r.filename
         r.filename, r.file_size, r.scan_status = stored, size, SCAN_PENDING

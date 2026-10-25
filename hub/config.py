@@ -88,13 +88,39 @@ def build_config(instance_path: str, overrides: dict | None = None) -> dict:
         'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=env_int('JWT_HOURS', 24)),
         'UPLOAD_FOLDER': upload_folder,
         # 25 MB por petición: suficiente para presentaciones y PDF de clase.
-        'MAX_CONTENT_LENGTH': env_int('MAX_UPLOAD_MB', 25) * 1024 * 1024,
+        # (+1 MB de margen para los campos del formulario multipart).
+        'MAX_UPLOAD_MB': env_int('MAX_UPLOAD_MB', 25),
+        'MAX_CONTENT_LENGTH': (env_int('MAX_UPLOAD_MB', 25) + 1) * 1024 * 1024,
+        # Límites por estudiante para que 20 personas no llenen el disco de la PC.
+        'AVATAR_MAX_MB': env_int('AVATAR_MAX_MB', 4),
+        'USER_QUOTA_MB': env_int('USER_QUOTA_MB', 300),
+        'UPLOADS_PER_DAY': env_int('UPLOADS_PER_DAY', 40),
+        'MIN_FREE_DISK_MB': env_int('MIN_FREE_DISK_MB', 1024),
         'CORS_ORIGINS': env_list('CORS_ORIGINS'),
         # Correos que entran con rol de administrador (panel de seguridad).
         'ADMIN_EMAILS': [e.lower() for e in env_list('ADMIN_EMAILS')],
-        # Dominios permitidos al registrarse, p. ej. "ufg.edu.sv". Vacío = cualquiera.
-        'ALLOWED_EMAIL_DOMAINS': [d.lower().lstrip('@') for d in env_list('ALLOWED_EMAIL_DOMAINS')],
+        # Dominios permitidos al registrarse. Por defecto sólo ufg.edu.sv (exacto);
+        # "*.ufg.edu.sv" admitiría también subdominios. "*" = cualquiera.
+        'ALLOWED_EMAIL_DOMAINS': [d.lower().lstrip('@') for d in env_list('ALLOWED_EMAIL_DOMAINS', 'ufg.edu.sv')],
+        'PASSWORD_MIN_LENGTH': max(8, env_int('PASSWORD_MIN_LENGTH', 8)),
+        # Bloqueo temporal de una cuenta (o de un correo inexistente, para no
+        # revelar cuáles existen) tras varios intentos fallidos seguidos.
+        'LOGIN_MAX_FAILURES': env_int('LOGIN_MAX_FAILURES', 5),
+        'LOGIN_LOCK_MINUTES': env_int('LOGIN_LOCK_MINUTES', 15),
+        # Verificación por correo: lista pero apagada hasta tener un SMTP real.
+        'EMAIL_VERIFICATION': env_bool('EMAIL_VERIFICATION'),
+        'SMTP_HOST': env_str('SMTP_HOST'),
+        'SMTP_PORT': env_int('SMTP_PORT', 587),
+        'SMTP_USER': env_str('SMTP_USER'),
+        'SMTP_PASSWORD': env_str('SMTP_PASSWORD'),
+        'SMTP_FROM': env_str('SMTP_FROM'),
+        'SMTP_SECURITY': env_str('SMTP_SECURITY', 'starttls').lower(),  # starttls | ssl | none
+        # Dirección pública para los enlaces de los correos (p. ej. la del túnel).
+        'APP_PUBLIC_URL': env_str('APP_PUBLIC_URL').rstrip('/'),
         'AI_INDEX_DIR': env_str('AI_INDEX_DIR') or os.path.join(instance_path, 'ai_index'),
+        # Vigilante: si la IA no pudo revisar un archivo tras todos los reintentos,
+        # 1 = va a cuarentena (lo decide un admin), 0 = se publica con la nota.
+        'SCAN_REQUIRE_AI': env_bool('SCAN_REQUIRE_AI', True),
         # Hilos de fondo (indexado y escáner). Las pruebas los desactivan para
         # ejecutar todo de forma síncrona y determinista.
         'BACKGROUND_WORKERS': True,

@@ -31,6 +31,7 @@ class FakeRouter(llm.Router):
     def __init__(self):
         super().__init__(providers={}, chat_order=['fake'], security_order=['fake'], embed_provider='none')
         self.security_verdict = 'ok'
+        self.fail_security = False
         self.chat_calls: list[list[dict]] = []
         self.fail_chat = False
 
@@ -60,6 +61,8 @@ class FakeRouter(llm.Router):
 
     def chat(self, messages, *, purpose='chat', temperature=0.2, max_tokens=None, json_mode=False):
         if purpose in ('security', 'vision'):
+            if self.fail_security:
+                raise llm.LLMError('sin cuota')
             texto = str(messages[-1]['content'])
             veredicto = 'block' if 'ignora tus instrucciones' in texto.lower() else self.security_verdict
             return llm.ChatResult(f'{{"verdict": "{veredicto}", "categories": [], "reason": "prueba"}}',
@@ -95,7 +98,8 @@ def fake_router():
 
 @pytest.fixture()
 def app(tmp_path, fake_router):
-    for limiter in (auth.login_limiter, auth.register_limiter, chat.flood_limiter, assistant.limiter):
+    for limiter in (auth.login_limiter, auth.login_ip_limiter, auth.register_limiter, auth.resend_limiter,
+                    chat.flood_limiter, assistant.limiter):
         limiter.reset()
     app = create_app({
         'DATABASE_PATH': str(tmp_path / 'test.db'),
@@ -104,6 +108,14 @@ def app(tmp_path, fake_router):
         'JWT_SECRET_KEY': 'clave-de-pruebas-suficientemente-larga-para-hs256',
         'BACKGROUND_WORKERS': False,
         'ADMIN_EMAILS': ['admin@ufg.edu.sv'],
+        # Valores fijos: las pruebas no dependen de lo que haya en .env.
+        'ALLOWED_EMAIL_DOMAINS': ['ufg.edu.sv'],
+        'EMAIL_VERIFICATION': False,
+        'SCAN_REQUIRE_AI': True,
+        'MAX_UPLOAD_MB': 25,
+        'USER_QUOTA_MB': 300,
+        'UPLOADS_PER_DAY': 40,
+        'MIN_FREE_DISK_MB': 0,
         'TESTING': True,
     })
     yield app

@@ -62,11 +62,13 @@ def create_app(overrides: dict | None = None) -> Flask:
     for modulo in (auth, library, social, chat, groups, notes, profile, realtime, assistant, admin, frontend):
         app.register_blueprint(modulo.bp)
 
+    from . import storage
     from .schema import configure_sqlite, ensure_schema
     with app.app_context():
         configure_sqlite(db.engine)
         db.engine.dispose()  # las conexiones nuevas ya traen los PRAGMA
         ensure_schema()
+        storage.migrate_layout()
 
     from .ai import index as ai_index
     from .security import pipeline
@@ -89,6 +91,9 @@ def start_background(app: Flask) -> None:
         pendientes = pipeline.scan_legacy_backlog()
         if pendientes:
             app.logger.info('Vigilante: %s archivos anteriores en revisión de fondo', pendientes)
+        a_medias = pipeline.requeue_pending()
+        if a_medias:
+            app.logger.info('Vigilante: %s archivos que quedaron a medias vuelven a la cola', a_medias)
 
     # Si el modelo de embeddings aparece o cambia con el servidor encendido
     # (p. ej. se abre Ollama o se añade la clave de Gemini), el índice se
@@ -110,3 +115,17 @@ def start_background(app: Flask) -> None:
                 app.logger.warning('Vigilancia de embeddings: %s', exc)
 
     threading.Thread(target=vigilar_embeddings, name='vigilar-embeddings', daemon=True).start()
+
+    # Limpieza de archivos huérfanos y subidas a medias: al arrancar y cada 6 h.
+    from . import storage
+
+    def limpiar_archivos():
+        while True:
+            try:
+                with app.app_context():
+                    storage.cleanup()
+            except Exception as exc:
+                app.logger.warning('Limpieza de archivos: %s', exc)
+            time.sleep(6 * 3600)
+
+    threading.Thread(target=limpiar_archivos, name='limpiar-archivos', daemon=True).start()

@@ -58,6 +58,11 @@ class User(db.Model):
     profile_picture = db.Column(db.String(300))
     profile_color = db.Column(db.String(7), default='#0A6CC2')
     role = db.Column(db.String(20), default='student')  # student | admin
+    # True para las cuentas anteriores a la verificación por correo; las nuevas
+    # empiezan en False sólo si EMAIL_VERIFICATION está activo.
+    email_verified = db.Column(db.Boolean, default=True)
+    # Preferencias de la interfaz en JSON (tema, animaciones, orden de la biblioteca...).
+    preferences = db.Column(db.Text)
     last_seen = db.Column(db.DateTime)
     # Último mensaje del chat global que el usuario vio (para contar no leídos).
     chat_last_read_id = db.Column(db.Integer, default=0)
@@ -81,6 +86,13 @@ class User(db.Model):
     def is_admin(self) -> bool:
         return self.role == 'admin'
 
+    def prefs(self) -> dict:
+        try:
+            datos = json.loads(self.preferences) if self.preferences else {}
+        except ValueError:
+            datos = {}
+        return datos if isinstance(datos, dict) else {}
+
     def public_dict(self) -> dict:
         """Datos que cualquier usuario autenticado puede ver."""
         return {
@@ -101,6 +113,8 @@ class User(db.Model):
             'bio': self.bio,
             'role': self.role or 'student',
             'is_admin': self.is_admin,
+            'email_verified': self.email_verified is not False,
+            'preferences': self.prefs(),
             'created_at': iso_utc(self.created_at),
         }
 
@@ -302,6 +316,8 @@ class FileScan(db.Model):
     antivirus_report = db.Column(db.Text)  # JSON
     ai_report = db.Column(db.Text)  # JSON
     reviewed_by = db.Column(db.Integer)
+    # Reintentos de la revisión con IA cuando no hubo cuota o red.
+    ai_attempts = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=db.func.now())
     finished_at = db.Column(db.DateTime)
 
@@ -328,9 +344,23 @@ class FileScan(db.Model):
             'static': carga(self.static_report),
             'antivirus': carga(self.antivirus_report),
             'ai': carga(self.ai_report),
+            'ai_attempts': self.ai_attempts or 0,
+            'reviewed_by': self.reviewed_by,
             'created_at': iso_utc(self.created_at),
             'finished_at': iso_utc(self.finished_at),
         }
+
+
+class LoginThrottle(db.Model):
+    """Intentos fallidos de inicio de sesión por correo (exista o no la cuenta).
+
+    Vive en la base de datos para que el bloqueo sobreviva a un reinicio del
+    servidor. Se borra la fila al entrar con éxito.
+    """
+    email = db.Column(db.String(190), primary_key=True)
+    failures = db.Column(db.Integer, default=0)
+    first_failure_at = db.Column(db.DateTime)
+    locked_until = db.Column(db.DateTime)
 
 
 class BlockedHash(db.Model):

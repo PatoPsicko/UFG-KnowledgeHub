@@ -28,9 +28,9 @@ def spec_resource(r: Resource) -> index.DocSpec:
 def spec_private(p: PrivateResource) -> index.DocSpec:
     if p.type == 'file':
         return index.DocSpec(kind='private_file', resource_id=p.id, title=p.title, owner_id=p.owner_id,
-                             origin='Tus anotaciones', path=path_for('private', p.filename))
+                             origin='Mi espacio', path=path_for('private', p.filename, p.owner_id))
     return index.DocSpec(kind='private_note', resource_id=p.id, title=p.title, owner_id=p.owner_id,
-                         origin='Tus anotaciones', text=f'{p.title}\n{p.content or ""}')
+                         origin='Mi espacio', text=f'{p.title}\n{p.content or ""}')
 
 
 def spec_group_resource(g: GroupResource, group_name: str | None = None) -> index.DocSpec:

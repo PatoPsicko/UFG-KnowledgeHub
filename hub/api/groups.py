@@ -405,7 +405,7 @@ def upload_resource(group_id: int):
     grupo, _ = _member_or_403(group_id)
     titulo = clean_text(request.form.get('title'), 'título', required=True, max_len=200)
     descripcion = clean_text(request.form.get('description'), 'descripción', max_len=2000)
-    stored, ruta, size = save_upload(request.files.get('file'), 'group', group_id)
+    stored, ruta, size = save_upload(request.files.get('file'), 'group', group_id, user_id=viewer.id)
     original = request.files['file'].filename
     check = pipeline.check_upload(ruta, original, 'group', viewer.id)
     recurso = GroupResource(group_id=group_id, user_id=viewer.id, title=titulo, description=descripcion,

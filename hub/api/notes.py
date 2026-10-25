@@ -61,7 +61,7 @@ def create_note():
     archivo = request.files.get('file')
     if archivo and archivo.filename:
         titulo = clean_text(request.form.get('title') or archivo.filename, 'título', required=True, max_len=200)
-        stored, ruta, size = save_upload(archivo, 'private')
+        stored, ruta, size = save_upload(archivo, 'private', viewer.id, user_id=viewer.id)
         check = pipeline.check_upload(ruta, archivo.filename, 'private', viewer.id)
         nota = PrivateResource(title=titulo, filename=stored, file_size=size, type='file', owner_id=viewer.id,
                                scan_status=SCAN_PENDING)
@@ -101,10 +101,11 @@ def update_note(resource_id: int):
 def delete_note(resource_id: int):
     p = _own(resource_id)
     filename = p.filename if p.type == 'file' else None
+    owner_id = p.owner_id
     kind = 'private_file' if p.type == 'file' else 'private_note'
     db.session.delete(p)
     db.session.commit()
-    delete_upload('private', filename)
+    delete_upload('private', filename, owner_id)
     specs.unindex(kind, resource_id)
     return jsonify({'message': 'Anotación eliminada.'}), 200
 
@@ -117,7 +118,7 @@ def download(resource_id: int):
         raise ApiError('Esta anotación no tiene archivo.', 404)
     if p.scan_status == SCAN_BLOCKED:
         raise ApiError('El archivo fue bloqueado por seguridad.', 403, 'scan_blocked')
-    ruta = path_for('private', p.filename)
+    ruta = path_for('private', p.filename, p.owner_id)
     if not os.path.exists(ruta):
         raise ApiError('El archivo ya no está en el servidor.', 404)
     return send_file(ruta, as_attachment=request.args.get('inline') != '1',
