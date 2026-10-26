@@ -76,9 +76,6 @@ export function renderShell(root, { onLogout }) {
             </div>
             <nav class="nav" id="nav">${navHtml(user, store.pulse, '/inicio')}</nav>
             <div class="sidebar__footer">
-                <div class="side-style" role="radiogroup" aria-label="Estilo del menú (prueba)" title="Estilo del menú (prueba)">
-                    ${[['lomos', 'A'], ['dock', 'B'], ['riel', 'C']].map(([v, l]) => html`<button type="button" role="radio" data-side-style="${v}">${l}</button>`)}
-                </div>
                 <button class="nav__item side-search" data-action="palette" type="button" title="Ir a… (Ctrl+K)">${icon('search')}<span>Ir a…</span><kbd>Ctrl K</kbd></button>
                 <div class="sidebar__actions">
                     <button class="theme-switch" type="button" data-action="theme" role="switch" aria-checked="false" aria-label="Modo oscuro">
@@ -139,19 +136,8 @@ export function renderShell(root, { onLogout }) {
         store.installPrompt = null;
         pintarInstalar();
     });
-    // --- Estilos de la barra lateral en prueba: A lomos, B dock, C riel + Ctrl+K ---
-    const ESTILOS = ['lomos', 'dock', 'riel'];
-    const aplicarEstilo = (estilo) => {
-        if (!ESTILOS.includes(estilo)) estilo = 'lomos';
-        app.dataset.sidebar = estilo;
-        app.classList.toggle('is-folded', estilo !== 'lomos');
-        root.querySelectorAll('[data-side-style]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.sideStyle === estilo)));
-        try { localStorage.setItem('sidebar-style', estilo); } catch { /* sin almacenamiento */ }
-    };
-    let guardado = null;
-    try { guardado = localStorage.getItem('sidebar-style'); } catch { /* */ }
-    aplicarEstilo(guardado);
-    on(app, 'click', '[data-side-style]', (_e, b) => aplicarEstilo(b.dataset.sideStyle));
+    // Barra lateral con «lomos de libro» (ver css: sección 20).
+    app.dataset.sidebar = 'lomos';
 
     // Paleta «Ir a…»: salta a una sección o busca en la biblioteca escribiendo.
     function abrirPaleta() {

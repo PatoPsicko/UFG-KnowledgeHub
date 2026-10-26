@@ -1550,10 +1550,8 @@ body { overflow-x: hidden; }
 .source { background: rgba(255, 255, 255, .07); }
 .source:hover { background: rgba(255, 255, 255, .13); }
 
-/* --- 20. Barra lateral: tres estilos en prueba (A lomos, B dock, C riel) ------------
-   shell.js pone data-sidebar en .app; B y C reutilizan la versión compacta
-   (.is-folded). En el celular manda la barra inferior y esto no aplica. */
-.side-style { display: none; }
+/* --- 20. Barra lateral con lomos de libro y paleta «Ir a…» (Ctrl+K) -----------------
+   En el celular manda la barra inferior y los lomos no aplican. */
 .side-search kbd { margin-left: auto; font: 600 11px var(--font-body); color: var(--ink-3); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
 .side-search { display: none; }
 
@@ -1570,11 +1568,6 @@ body { overflow-x: hidden; }
 .palette__item[aria-selected="true"] svg { color: var(--ufg-blue); }
 
 @media (min-width: 981px) {
-    .side-style { display: flex; gap: 4px; padding: 0 4px 10px; }
-    .side-style button { flex: 1; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); font-size: 12px; font-weight: 700; color: var(--ink-3); }
-    .side-style button[aria-checked="true"] { background: var(--ufg-orange); border-color: var(--ufg-orange); color: #2B1700; }
-    .app.is-folded .side-style { flex-direction: column; }
-
     /* A. Lomos de libro: cada sección es un lomo de color en una pila; la activa
        sobresale como un libro a medio sacar. */
     .app[data-sidebar="lomos"] .nav { gap: 5px; padding-right: 10px; }
@@ -1602,42 +1595,4 @@ body { overflow-x: hidden; }
     .app[data-sidebar="lomos"] .nav .nav__item[aria-current="page"]::before { display: none; }
     .app[data-sidebar="lomos"] .nav__count { background: #fff; color: var(--navy); }
     .app[data-sidebar="lomos"] .nav__group { margin-top: 16px; }
-
-    /* B. Dock flotante de vidrio: cápsula separada del borde, íconos que crecen. */
-    .app[data-sidebar="dock"] { grid-template-columns: 104px 1fr; }
-    .app[data-sidebar="dock"] .sidebar {
-        top: 14px; height: calc(100vh - 28px); margin: 14px 0 14px 14px; width: 76px; border-radius: 28px;
-        border: 1px solid rgba(147, 197, 253, .3);
-        background: linear-gradient(170deg, rgba(14, 52, 102, .9), rgba(10, 37, 76, .94));
-        backdrop-filter: blur(16px); box-shadow: 0 18px 40px -18px rgba(11, 60, 120, .6);
-    }
-    .app[data-sidebar="dock"] .sidebar__top, .app[data-sidebar="dock"] .sidebar__footer { border-color: rgba(147, 197, 253, .18); }
-    .app[data-sidebar="dock"] .nav__item, .app[data-sidebar="dock"] .side-search { color: #BFD6F5; transition: transform .18s var(--ease), background-color .15s; }
-    .app[data-sidebar="dock"] .nav__item svg { color: #BFD6F5; width: 21px; height: 21px; }
-    .app[data-sidebar="dock"] .nav__item:hover { background: rgba(255, 255, 255, .12); transform: scale(1.22); }
-    .app[data-sidebar="dock"] .nav__item[aria-current="page"] { background: rgba(255, 255, 255, .16); }
-    .app[data-sidebar="dock"] .nav__item[aria-current="page"] svg { color: #fff; }
-    .app[data-sidebar="dock"] .nav__item[aria-current="page"]::before { left: auto; right: -10px; top: 50%; bottom: auto; width: 5px; height: 5px; border-radius: 50%; transform: translateY(-50%); }
-    .app[data-sidebar="dock"] .nav__group { color: #8EA3BD; }
-    .app[data-sidebar="dock"] .notif-panel { left: 104px; }
-
-    /* B y C: el nombre aparece como etiqueta al pasar el ratón. */
-    .app[data-sidebar="dock"] .nav__item > span:not(.nav__count),
-    .app[data-sidebar="riel"] .nav__item > span:not(.nav__count) {
-        position: absolute; left: calc(100% + 14px); top: 50%; transform: translateY(-50%); width: auto; overflow: visible;
-        padding: 5px 10px; border-radius: 8px; background: var(--navy); color: #fff; font-size: 13px; white-space: nowrap;
-        opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 5;
-    }
-    .app[data-sidebar="dock"] .nav__item:hover > span:not(.nav__count),
-    .app[data-sidebar="riel"] .nav__item:hover > span:not(.nav__count) { opacity: 1; }
-
-    /* C. Riel mínimo + Ctrl+K: franja delgada y el buscador «Ir a…» a mano. */
-    .app[data-sidebar="riel"] { grid-template-columns: 64px 1fr; }
-    .app[data-sidebar="riel"] .sidebar { padding-left: 8px; padding-right: 8px; }
-    .app[data-sidebar="riel"] .sidebar__brand { width: 44px; }
-    .app[data-sidebar="riel"] .sidebar__brand img { width: 44px; height: 26px; }
-    .app[data-sidebar="riel"] .side-search { display: flex; justify-content: center; padding: 10px 0; margin-bottom: 8px; border: 1px dashed var(--line); }
-    .app[data-sidebar="riel"] .side-search > span, .app[data-sidebar="riel"] .side-search kbd { display: none; }
-    .app[data-sidebar="riel"] .nav__item[aria-current="page"]::before { left: -8px; }
-    .app[data-sidebar="riel"] .notif-panel { left: 74px; }
 }
