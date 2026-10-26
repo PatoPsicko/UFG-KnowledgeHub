@@ -73,10 +73,13 @@ export function renderShell(root, { onLogout }) {
                     <img src="img/logo_hub.png" alt="UFG Knowledge Hub">
                     <span class="sidebar__product">Knowledge Hub</span>
                 </a>
-                <button class="icon-btn icon-btn--sm sidebar__fold" data-action="fold" aria-label="Plegar menú" title="Plegar menú">${icon('foldLeft')}</button>
             </div>
             <nav class="nav" id="nav">${navHtml(user, store.pulse, '/inicio')}</nav>
             <div class="sidebar__footer">
+                <div class="side-style" role="radiogroup" aria-label="Estilo del menú (prueba)" title="Estilo del menú (prueba)">
+                    ${[['lomos', 'A'], ['dock', 'B'], ['riel', 'C']].map(([v, l]) => html`<button type="button" role="radio" data-side-style="${v}">${l}</button>`)}
+                </div>
+                <button class="nav__item side-search" data-action="palette" type="button" title="Ir a… (Ctrl+K)">${icon('search')}<span>Ir a…</span><kbd>Ctrl K</kbd></button>
                 <div class="sidebar__actions">
                     <button class="theme-switch" type="button" data-action="theme" role="switch" aria-checked="false" aria-label="Modo oscuro">
                         <span class="theme-switch__track"><span class="theme-switch__thumb">${icon('sun')}</span></span><span>Modo oscuro</span></button>
@@ -136,6 +139,64 @@ export function renderShell(root, { onLogout }) {
         store.installPrompt = null;
         pintarInstalar();
     });
+    // --- Estilos de la barra lateral en prueba: A lomos, B dock, C riel + Ctrl+K ---
+    const ESTILOS = ['lomos', 'dock', 'riel'];
+    const aplicarEstilo = (estilo) => {
+        if (!ESTILOS.includes(estilo)) estilo = 'lomos';
+        app.dataset.sidebar = estilo;
+        app.classList.toggle('is-folded', estilo !== 'lomos');
+        root.querySelectorAll('[data-side-style]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.sideStyle === estilo)));
+        try { localStorage.setItem('sidebar-style', estilo); } catch { /* sin almacenamiento */ }
+    };
+    let guardado = null;
+    try { guardado = localStorage.getItem('sidebar-style'); } catch { /* */ }
+    aplicarEstilo(guardado);
+    on(app, 'click', '[data-side-style]', (_e, b) => aplicarEstilo(b.dataset.sideStyle));
+
+    // Paleta «Ir a…»: salta a una sección o busca en la biblioteca escribiendo.
+    function abrirPaleta() {
+        if (document.querySelector('.palette')) return;
+        const destinos = [...NAV, ...(store.user.is_admin ? [{ path: '/seguridad', label: 'Seguridad', icon: 'shield' }] : []),
+            { path: '/perfil', label: 'Mi perfil', icon: 'user' }];
+        const capa = document.createElement('div');
+        capa.className = 'palette';
+        setHtml(capa, html`<div class="palette__box" role="dialog" aria-label="Ir a">
+            <div class="palette__input">${icon('search')}<input type="text" placeholder="Ir a una sección o buscar documentos…" aria-label="Ir a"></div>
+            <div class="palette__list" role="listbox"></div></div>`);
+        document.body.appendChild(capa);
+        const input = capa.querySelector('input');
+        const lista = capa.querySelector('.palette__list');
+        let sel = 0;
+        let items = [];
+        const pintar = () => {
+            const q = input.value.trim().toLowerCase();
+            items = destinos.filter((d) => !q || d.label.toLowerCase().includes(q)).map((d) => ({ ...d, go: d.path }));
+            if (q) items.push({ label: `Buscar «${input.value.trim()}» en la biblioteca`, icon: 'library', go: `/biblioteca?q=${encodeURIComponent(input.value.trim())}` });
+            sel = Math.min(sel, items.length - 1);
+            setHtml(lista, html`${items.map((it, i) => html`<button type="button" class="palette__item" role="option" aria-selected="${i === sel}" data-i="${i}">${icon(it.icon)}<span>${it.label}</span></button>`)}`);
+        };
+        const cerrar = () => capa.remove();
+        const ir = (i) => { const it = items[i]; cerrar(); if (it) go(it.go); };
+        input.addEventListener('input', () => { sel = 0; pintar(); });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') { sel = (sel + 1) % items.length; pintar(); e.preventDefault(); }
+            else if (e.key === 'ArrowUp') { sel = (sel - 1 + items.length) % items.length; pintar(); e.preventDefault(); }
+            else if (e.key === 'Enter') ir(sel);
+            else if (e.key === 'Escape') cerrar();
+        });
+        capa.addEventListener('click', (e) => {
+            const b = e.target.closest('.palette__item');
+            if (b) ir(Number(b.dataset.i));
+            else if (!e.target.closest('.palette__box')) cerrar();
+        });
+        pintar();
+        input.focus();
+    }
+    on(app, 'click', '[data-action="palette"]', abrirPaleta);
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); abrirPaleta(); }
+    }, { signal });
+
     on(app, 'click', '[data-action="open-nav"]', () => app.classList.add('nav-open'));
     on(app, 'click', '[data-action="close-nav"]', () => app.classList.remove('nav-open'));
     on(app, 'click', '.nav__item[href], .me', () => app.classList.remove('nav-open'));
@@ -143,20 +204,6 @@ export function renderShell(root, { onLogout }) {
     window.addEventListener('hashchange', () => app.classList.remove('nav-open'), { signal });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') app.classList.remove('nav-open'); }, { signal });
 
-    const pintarPliegue = () => {
-        const plegado = app.classList.contains('is-folded');
-        const b = $('[data-action="fold"]', root);
-        b.setAttribute('aria-label', plegado ? 'Desplegar menú' : 'Plegar menú');
-        b.title = b.getAttribute('aria-label');
-        setHtml(b, icon(plegado ? 'foldRight' : 'foldLeft'));
-    };
-    try { if (localStorage.getItem('sidebar') === 'folded') app.classList.add('is-folded'); } catch { /* sin almacenamiento */ }
-    on(app, 'click', '[data-action="fold"]', () => {
-        app.classList.toggle('is-folded');
-        try { localStorage.setItem('sidebar', app.classList.contains('is-folded') ? 'folded' : 'open'); } catch { /* */ }
-        pintarPliegue();
-    });
-    pintarPliegue();
 
     // Notificaciones
     const slot = $('#notif-slot', root);
