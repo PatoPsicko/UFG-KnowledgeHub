@@ -8,6 +8,7 @@ import re
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
+from ..catalog import valid_career
 from ..errors import ApiError
 from ..extensions import bcrypt, db
 from ..models import Contact, GroupMember, PrivateResource, Resource, SavedResource, User
@@ -67,7 +68,10 @@ def update_profile():
     if 'name' in data:
         user.name = clean_text(data.get('name'), 'nombre', required=True, max_len=150)
     if 'career' in data:
-        user.career = clean_text(data.get('career'), 'carrera', max_len=100)
+        carrera = clean_text(data.get('career'), 'carrera', max_len=100)
+        if not valid_career(carrera, user.career):
+            raise ApiError('Elige tu carrera de la lista.', 400, 'invalid_career')
+        user.career = carrera
     if 'bio' in data:
         user.bio = clean_text(data.get('bio'), 'presentación', max_len=280)
     if 'semester' in data:

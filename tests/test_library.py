@@ -76,8 +76,9 @@ def test_notes_crud_and_privacy(make_user):
 
 def test_profile_update_and_stats(make_user):
     ana = make_user('Ana')
-    r = ana.put('/api/profile', {'career': 'Ingeniería en Sistemas', 'semester': 5, 'bio': 'Me gusta SQL'})
+    r = ana.put('/api/profile', {'career': 'Ingeniería en Ciencias de la Computación', 'semester': 5, 'bio': 'Me gusta SQL'})
     assert r.status_code == 200 and r.get_json()['user']['semester'] == 5
+    assert ana.put('/api/profile', {'career': 'Carrera inventada'}).status_code == 400
     assert ana.put('/api/profile', {'semester': 40}).status_code == 400
     assert ana.put('/api/profile', {'profile_color': 'rojo'}).status_code == 400
     _subir(ana)
@@ -99,3 +100,22 @@ def test_change_password(make_user, client):
     from conftest import PASSWORD
     assert ana.post('/api/profile/password', {'current_password': PASSWORD, 'new_password': 'NuevaClave99'}).status_code == 200
     assert client.post('/api/login', json={'email': 'ana@ufg.edu.sv', 'password': 'NuevaClave99'}).status_code == 200
+
+
+def test_documents_carry_the_uploader_career(make_user):
+    ana = make_user('Ana')
+    beto = make_user('Beto')
+    grupos = ana.get('/api/resources/careers').get_json()['groups']
+    assert any('Ingeniería en Ciencias de la Computación' in g['careers'] for g in grupos)
+    ana.put('/api/profile', {'career': 'Ingeniería en Ciencias de la Computación'})
+    beto.put('/api/profile', {'career': 'Licenciatura en Psicología'})
+    rid = _subir(ana)
+    assert ana.get(f'/api/resources/{rid}').get_json()['resource']['career'] == 'Ingeniería en Ciencias de la Computación'
+    # La biblioteca filtra por carrera y «Mi carrera» usa la del perfil.
+    assert ana.get('/api/resources?scope=career').get_json()['total'] == 1
+    assert beto.get('/api/resources?scope=career').get_json()['total'] == 0
+    assert beto.get('/api/resources?career=Ingenier%C3%ADa%20en%20Ciencias%20de%20la%20Computaci%C3%B3n').get_json()['total'] == 1
+    # Se puede compartir para otra carrera del catálogo, no para una inventada.
+    assert ana.put(f'/api/resources/{rid}', {'career': 'Licenciatura en Psicología'}).status_code == 200
+    assert beto.get('/api/resources?scope=career').get_json()['total'] == 1
+    assert ana.put(f'/api/resources/{rid}', {'career': 'Astrología'}).status_code == 400

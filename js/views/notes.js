@@ -15,7 +15,7 @@ export async function notesView(root, { query = {} }, signal) {
 
     setHtml(root, html`<div class="page page--wide">
         <div class="page-head">
-            <div><h1>Mi espacio</h1><p>Tus notas y archivos: sólo tú los ves. El asistente también puede consultarlas cuando le preguntas.</p></div>
+            <div><h1>Mi espacio</h1><p>Tus notas y archivos: sólo tú los ves. Francis también puede consultarlas cuando le preguntas.</p></div>
             <div class="page-head__actions">
                 <button class="btn btn--secondary" data-action="upload">${icon('paperclip')}Subir archivo</button>
                 <button class="btn btn--primary" data-action="new">${icon('plus')}Nueva nota</button>
@@ -65,7 +65,7 @@ export async function notesView(root, { query = {} }, signal) {
             body: html`<input class="input" name="title" maxlength="200" value="${nota.title}" aria-label="Título" style="font-weight:600;margin-bottom:10px">
                 <textarea class="textarea sticky-editor" name="content" maxlength="50000" placeholder="Escribe aquí tus ideas, resúmenes o pendientes…" aria-label="Contenido">${nota.content}</textarea>
                 <div style="display:flex;gap:6px;margin-top:10px">
-                    <button type="button" class="btn btn--ghost btn--sm" data-note-act="ask">${icon('bulb')}Preguntar al asistente</button>
+                    <button type="button" class="btn btn--ghost btn--sm" data-note-act="ask">${icon('robot')}Preguntar a Francis</button>
                     <button type="button" class="btn btn--ghost btn--sm" data-note-act="delete" style="margin-left:auto;color:var(--danger)">${icon('trash')}Eliminar</button>
                 </div>`,
             onOpen: (_d, form) => form.content.focus(),
@@ -98,7 +98,7 @@ export async function notesView(root, { query = {} }, signal) {
                 <div class="doc__main"><span class="doc__title" style="cursor:default">${f.title}</span>
                     <div class="doc__meta"><span>${f.original_filename}</span>${f.file_size ? html`<span>${fileSize(f.file_size)}</span>` : ''}<span>${timeAgo(f.created_at)}</span>${scanBadge(f.scan_status)}</div></div>
                 <div class="doc__actions">
-                    <button class="icon-btn icon-btn--sm" data-file-act="ask" aria-label="Preguntar al asistente" title="Preguntar al asistente">${icon('bulb')}</button>
+                    <button class="icon-btn icon-btn--sm" data-file-act="ask" aria-label="Preguntar a Francis" title="Preguntar a Francis">${icon('robot')}</button>
                     <button class="icon-btn icon-btn--sm" data-file-act="download" aria-label="Descargar" title="Descargar">${icon('download')}</button>
                     <button class="icon-btn icon-btn--sm" data-file-act="delete" aria-label="Eliminar" title="Eliminar">${icon('trash')}</button>
                 </div>

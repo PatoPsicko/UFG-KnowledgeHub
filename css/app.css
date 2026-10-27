@@ -1601,3 +1601,205 @@ body { overflow-x: hidden; }
 .share-qr { display: grid; place-items: center; padding: 14px; border-radius: var(--r-lg); background: #fff; width: min(280px, 100%); margin: 0 auto; }
 .share-qr svg { width: 100%; height: auto; display: block; }
 .share-url { margin-top: 12px; text-align: center; font-weight: 600; overflow-wrap: anywhere; color: var(--ufg-blue-600); }
+
+/* --- 21. Librero de inicio, barra superior con «atrás» y casita ---------------------
+   Ya no hay barra lateral: Inicio es un librero (views/shelf.js) y cada libro
+   abre un módulo. Dentro de un módulo, la barra superior lleva atrás, la
+   casita (volver al librero), el título y las acciones de la cuenta. */
+.app { display: block; min-height: 100dvh; }
+.topbar {
+    display: flex; height: 64px; padding: 0 20px; gap: 10px;
+    background: color-mix(in srgb, var(--paper) 90%, transparent);
+}
+.topbar__nav { display: flex; align-items: center; gap: 2px; }
+.topbar__nav svg, .topbar__actions .icon-btn svg { width: 21px; height: 21px; }
+.topbar__brand { display: flex; align-items: center; }
+.topbar__brand img { height: 34px; width: 98px; object-fit: cover; object-position: left center; }
+.topbar__title { font-size: 19px; font-weight: 600; margin: 0 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.topbar__actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.topbar__search {
+    display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px 0 12px; margin-right: 6px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-3); font-size: 14.5px;
+}
+.topbar__search svg { width: 17px; height: 17px; }
+.topbar__search kbd { font: 600 11px var(--font-body); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin-left: 18px; }
+.topbar__search:hover { border-color: #C3CDD9; color: var(--ink-2); }
+.topbar__me { border: 0; background: none; padding: 3px; border-radius: 50%; margin-left: 4px; display: grid; }
+.topbar__me .avatar { width: 34px; height: 34px; font-size: 13.5px; }
+.topbar__me:focus-visible, .book:focus-visible { outline: 3px solid var(--ufg-orange); outline-offset: 3px; }
+.topbar [hidden] { display: none; }
+.page { padding-top: 14px; }
+.assistant-page, .messenger { height: calc(100dvh - 64px - 36px); }
+.notif-panel { position: fixed; top: 60px; right: 16px; bottom: auto; left: auto; z-index: 90; max-height: calc(100dvh - 80px); display: flex; flex-direction: column; }
+.notif-panel .notif-list { overflow-y: auto; }
+
+/* En el librero la barra flota, transparente, sobre la escena oscura. */
+.app[data-home="true"] .topbar { position: absolute; left: 0; right: 0; background: transparent; border: 0; backdrop-filter: none; }
+.app[data-home="true"] .topbar__nav, .app[data-home="true"] .topbar__brand,
+.app[data-home="true"] .topbar__title, .app[data-home="true"] .topbar__search { display: none; }
+.app[data-home="true"] .topbar .icon-btn { color: #E9DCC6; }
+.app[data-home="true"] .topbar .icon-btn:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.app[data-home="true"] .tabbar { display: none; }
+.app[data-home="true"] .main { padding-bottom: 0; }
+html.en-librero, html.en-librero body { background: #120C08; }
+
+/* Hojas y diálogos: la cabecera y los botones quedan fijos y el contenido se
+   desplaza (antes el formulario no se encogía y en el celular no había scroll). */
+dialog.dialog > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.dialog__body { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+
+/* --- La escena: una pared en penumbra con una lámpara cálida arriba --- */
+.lobby {
+    --madera: #6E4526; --madera-clara: #8C5A33; --madera-oscura: #3E2614;
+    position: relative; min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
+    padding: 34px 20px 40px; overflow: hidden; color: #F1E6D2;
+    background:
+        radial-gradient(ellipse 60% 45% at 50% 0%, rgba(255, 196, 120, .22), transparent 70%),
+        radial-gradient(ellipse 80% 60% at 50% 100%, rgba(11, 111, 203, .14), transparent 70%),
+        linear-gradient(180deg, #1D140E 0%, #120C08 100%);
+}
+.lobby__head { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-bottom: 26px; text-align: center; animation: lobby-in .6s var(--ease) both; }
+/* El logo trae espacio transparente a la derecha: se recorta para centrarlo. */
+.lobby__logo { height: 76px; width: 174px; object-fit: cover; object-position: left center; filter: drop-shadow(0 4px 14px rgba(0, 0, 0, .5)); }
+.lobby__product { font-family: var(--font-display); font-size: 19px; letter-spacing: .06em; color: #E9DCC6; }
+.lobby__hello { margin-top: 10px; font-size: 15px; color: #BBA88D; }
+
+/* --- El librero --- */
+.bookcase {
+    width: min(1040px, 100%); padding: 18px 20px 0; border-radius: 10px 10px 4px 4px;
+    background:
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 2px, transparent 2px 11px),
+        linear-gradient(90deg, var(--madera-oscura), var(--madera) 6%, var(--madera-clara) 50%, var(--madera) 94%, var(--madera-oscura));
+    box-shadow: 0 40px 80px -30px rgba(0, 0, 0, .9), inset 0 2px 0 rgba(255, 255, 255, .12), inset 0 -2px 0 rgba(0, 0, 0, .3);
+}
+.bookcase__shelf { position: relative; }
+.bookcase__books {
+    position: relative; height: clamp(300px, 46vh, 430px); display: flex; align-items: flex-end; gap: 10px;
+    padding: 22px 34px 0 22px;
+    /* Fondo del hueco: madera más oscura, en sombra hacia arriba y los lados. */
+    background:
+        linear-gradient(180deg, rgba(0, 0, 0, .55), rgba(0, 0, 0, .15) 35%, rgba(0, 0, 0, .3)),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, .02) 0 3px, transparent 3px 14px),
+        #2C1B0F;
+    box-shadow: inset 12px 0 18px -10px rgba(0, 0, 0, .8), inset -12px 0 18px -10px rgba(0, 0, 0, .8);
+}
+.bookcase__plank {
+    position: relative; z-index: 2; height: 24px; margin: 0 -20px;
+    background:
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, .05) 0 3px, transparent 3px 17px),
+        linear-gradient(180deg, #A06A3E 0, var(--madera-clara) 18%, var(--madera) 70%, var(--madera-oscura));
+    box-shadow: 0 10px 16px -6px rgba(0, 0, 0, .7);
+    border-radius: 2px;
+}
+
+/* --- Los libros --- */
+.book {
+    --book: #0B6FCB;
+    position: relative; flex: var(--w, 1) 1 0; max-width: 168px; height: var(--h, 90%); color: #F6EBD6;
+    transform-origin: 50% 100%; transition: transform .35s var(--ease), filter .35s var(--ease), opacity .3s;
+    animation: libro-entra .6s var(--ease) both; animation-delay: calc(.12s + var(--i, 0) * .07s);
+    -webkit-tap-highlight-color: transparent;
+}
+.book:hover { text-decoration: none; }
+.book__body {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    padding: 16px 8px 12px; border-radius: 5px 5px 3px 3px; overflow: hidden;
+    /* Lomo redondeado: sombra en los bordes y un brillo vertical. */
+    background:
+        linear-gradient(90deg, rgba(0, 0, 0, .38), rgba(0, 0, 0, 0) 12%, rgba(255, 255, 255, .16) 30%, rgba(255, 255, 255, 0) 46%, rgba(0, 0, 0, 0) 80%, rgba(0, 0, 0, .35)),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 4px),
+        var(--book);
+    box-shadow: 0 14px 22px -12px rgba(0, 0, 0, .85), inset 0 1px 0 rgba(255, 255, 255, .2);
+    transition: box-shadow .35s var(--ease);
+}
+/* Bandas doradas arriba y abajo del lomo. */
+.book__body::before, .book__body::after {
+    content: ''; position: absolute; left: 0; right: 0; height: 10px;
+    border-top: 2px solid rgba(232, 196, 120, .75); border-bottom: 2px solid rgba(232, 196, 120, .75);
+}
+.book__body::before { top: 7%; }
+.book__body::after { bottom: 7%; }
+.book__cap {
+    position: relative; z-index: 1; margin-top: 16%; width: 46px; height: 46px; border-radius: 50%; flex: none;
+    display: grid; place-items: center; background: rgba(0, 0, 0, .2); box-shadow: inset 0 0 0 2px rgba(232, 196, 120, .55);
+}
+.book__cap svg { width: 25px; height: 25px; color: #F3DFB4; }
+.book__title {
+    flex: 1; display: flex; align-items: center; justify-content: center; margin: 12px 0; min-height: 0;
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    font-family: var(--font-display); font-weight: 500; font-size: clamp(19px, 2.3vw, 27px); letter-spacing: .04em;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, .45); white-space: nowrap;
+}
+.book__foot { position: relative; z-index: 1; margin-bottom: 12%; font: 700 11px var(--font-display); letter-spacing: .2em; color: rgba(243, 223, 180, .8); }
+/* Cinta separadora con los pendientes (p. ej. mensajes de grupos sin leer). */
+.book__ribbon {
+    position: absolute; top: -4px; right: 16px; z-index: 2; min-width: 26px; padding: 6px 4px 14px; text-align: center;
+    font: 700 12px var(--font-body); color: #fff; background: var(--ufg-orange);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+}
+/* El último libro descansa inclinado sobre el costado. */
+.book--lean { transform-origin: 0 100%; transform: rotate(8deg); margin-left: 6px; margin-right: 34px; }
+
+/* Al pasar el ratón el libro sobresale como si lo fueras a tomar. */
+@media (hover: hover) {
+    .book:hover { transform: translateY(-16px) rotate(-1.2deg); filter: brightness(1.08); }
+    .book--lean:hover { transform: rotate(3deg) translateY(-12px); }
+    .book:hover .book__body { box-shadow: 0 30px 34px -14px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 220, 160, .25), inset 0 1px 0 rgba(255, 255, 255, .25); }
+}
+.book:focus-visible { transform: translateY(-16px); }
+/* Al tocarlo: sale de la repisa y se abre el módulo. */
+.book.is-taken { transform: translateY(-46px) scale(1.06); filter: brightness(1.15); transition-duration: .3s; z-index: 3; }
+.book--lean.is-taken { transform: rotate(0deg) translateY(-46px) scale(1.06); }
+.bookcase.is-leaving .book:not(.is-taken) { opacity: .55; }
+
+@keyframes libro-entra { from { opacity: 0; translate: 0 26px; } to { opacity: 1; translate: 0 0; } }
+@keyframes lobby-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .book, .lobby__head { animation: none; } }
+
+/* Dashboard: aviso para indicar la carrera y carrera en los documentos. */
+.career-cta {
+    display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 14px; border-radius: var(--r-lg);
+    background: var(--ufg-orange-50); color: var(--ink); border: 1px solid color-mix(in srgb, var(--ufg-orange) 35%, transparent);
+}
+.career-cta:hover { text-decoration: none; border-color: var(--ufg-orange); }
+.career-cta > svg { width: 22px; height: 22px; color: var(--ufg-orange-600); flex: none; }
+.career-cta > svg:last-child { margin-left: auto; width: 18px; color: var(--ink-3); }
+.career-cta span span { display: block; font-size: 13.5px; color: var(--ink-2); }
+.career-chip {
+    display: flex; align-items: center; gap: 9px; padding: 8px 8px 8px 12px; border-radius: var(--r-md);
+    background: var(--surface-2); border: 1px solid var(--line); font-size: 14.5px;
+}
+.career-chip > svg { width: 18px; height: 18px; color: var(--ufg-blue); flex: none; }
+.career-chip > span { flex: 1; min-width: 0; }
+.cascade { margin-top: 2px; }
+.doc__career { max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Celular y tableta --- */
+@media (max-width: 980px) {
+    .topbar { height: calc(56px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0; gap: 4px; }
+    .topbar__brand { display: none; }
+    .topbar__title { font-size: 17px; margin-left: 2px; }
+    .only-desktop { display: none !important; }
+    .notif-panel { top: auto; left: 12px; right: 12px; width: auto; }
+    .assistant-page, .messenger { height: auto; }
+}
+@media (max-width: 720px) {
+    .lobby { padding: calc(52px + env(safe-area-inset-top)) 14px 24px; }
+    .lobby__head { margin-bottom: 16px; }
+    .lobby__logo { height: 58px; width: 133px; }
+    .lobby__product { font-size: 16px; }
+    .lobby__hello { margin-top: 6px; font-size: 14px; }
+    .bookcase { padding: 12px 12px 0; }
+    /* Dos repisas: 3 libros arriba y 2 abajo, de modo que quepan casi sin bajar. */
+    .bookcase__books { height: clamp(190px, calc((100dvh - 250px) / 2), 300px); gap: 8px; padding: 14px 14px 0 12px; }
+    .bookcase__shelf + .bookcase__shelf .bookcase__books { justify-content: center; padding-right: 30px; }
+    .bookcase__shelf + .bookcase__shelf .book { max-width: 92px; }
+    .bookcase__plank { height: 18px; margin: 0 -12px; }
+    .book { max-width: 108px; }
+    .book__body { padding: 10px 4px 8px; }
+    .book__cap { width: 36px; height: 36px; margin-top: 14%; }
+    .book__cap svg { width: 20px; height: 20px; }
+    .book__title { font-size: 17px; margin: 10px 0; }
+    .book__foot { font-size: 9.5px; }
+    .book--lean { margin-right: 22px; }
+}

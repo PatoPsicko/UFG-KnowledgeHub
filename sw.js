@@ -7,7 +7,7 @@
  * La API (/api/...) nunca se guarda: son datos privados de cada estudiante.
  */
 
-const CACHE = 'ufg-hub-v2';
+const CACHE = 'ufg-hub-v3';
 const BASICO = ['/', '/css/app.css', '/js/main.js', '/img/logo_hub.png', '/img/icons/icon-192.png'];
 
 self.addEventListener('install', (event) => {

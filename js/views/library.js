@@ -4,7 +4,8 @@ import { api } from '../core/api.js';
 import { $, debounce, fileSize, html, longDate, on, raw, setHtml, timeAgo } from '../core/dom.js';
 import { prefs } from '../core/prefs.js';
 import { store } from '../core/store.js';
-import { AREAS, PREVIEWABLE, SUGGESTED_TAGS, areaOf, typeLabel } from '../data/categories.js';
+import { PREVIEWABLE, SUGGESTED_TAGS, areaOf, typeLabel } from '../data/categories.js';
+import { careerFields, categoryFields, fillCareer, fillCategory } from '../ui/pickers.js';
 import { avatar, empty, scanBadge, skeletonRows } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { closeDrawer, confirmDialog, openDialog, openDrawer, toast } from '../ui/overlay.js';
@@ -19,6 +20,7 @@ export function docRow(r) {
             <div class="doc__meta">
                 <span>${r.author}</span>
                 <span>${r.category}</span>
+                ${r.career ? html`<span class="doc__career">${r.career}</span>` : ''}
                 <span>${icon('download')}${r.downloads}</span>
                 <span>${timeAgo(r.created_at)}</span>
                 ${scanBadge(r.scan_status)}
@@ -26,7 +28,7 @@ export function docRow(r) {
             ${r.tags ? html`<div class="doc__tags">${r.tags.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 5).map((t) => html`<span class="tag">${t}</span>`)}</div>` : ''}
         </div>
         <div class="doc__actions">
-            <button class="icon-btn icon-btn--sm" data-action="ask" title="Preguntar al asistente sobre este documento" aria-label="Preguntar al asistente">${icon('bulb')}</button>
+            <button class="icon-btn icon-btn--sm" data-action="ask" title="Preguntar a Francis sobre este documento" aria-label="Preguntar a Francis">${icon('robot')}</button>
             <button class="icon-btn icon-btn--sm" data-action="save" aria-pressed="${r.saved}" title="${r.saved ? 'Quitar de guardados' : 'Guardar'}" aria-label="Guardar">${icon(r.saved ? 'bookmarkFill' : 'bookmark')}</button>
             <button class="icon-btn icon-btn--sm" data-action="download" title="Descargar" aria-label="Descargar">${icon('download')}</button>
         </div>
@@ -85,7 +87,7 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
         <div class="drawer__body">
             <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <button class="btn btn--primary" data-act="download">${icon('download')}Descargar</button>
-                <button class="btn btn--accent" data-act="ask">${icon('bulb')}Preguntar al asistente</button>
+                <button class="btn btn--accent" data-act="ask">${icon('robot')}Preguntar a Francis</button>
                 <button class="btn btn--secondary" data-act="save" aria-pressed="${r.saved}">${icon(r.saved ? 'bookmarkFill' : 'bookmark')}${r.saved ? 'Guardado' : 'Guardar'}</button>
                 ${r.is_owner || store.user.is_admin ? html`
                     <button class="icon-btn" data-act="edit" title="Editar" aria-label="Editar">${icon('edit')}</button>
@@ -98,6 +100,7 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
             <dl class="kv">
                 <dt>Autor</dt><dd>${r.author}</dd>
                 <dt>Categoría</dt><dd>${r.category}</dd>
+                ${r.career ? html`<dt>Carrera</dt><dd>${r.career}</dd>` : ''}
                 <dt>Subido por</dt><dd style="display:flex;align-items:center;gap:8px">${avatar(r.owner, 'sm')}${r.owner?.name || r.owner_name}</dd>
                 <dt>Fecha</dt><dd>${longDate(r.created_at)}</dd>
                 <dt>Archivo</dt><dd style="word-break:break-all">${r.original_filename} ${r.file_size ? html`<span style="color:var(--ink-3)">(${fileSize(r.file_size)})</span>` : ''}</dd>
@@ -171,13 +174,10 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
 }
 
 /* --- Subir / editar ------------------------------------------------------------- */
-function categoryOptions(selected) {
-    return html`<option value="">Elige una categoría</option>${AREAS.map((a) => html`<optgroup label="${a.name}">
-        ${a.items.map((c) => html`<option value="${c}" ${c === selected ? raw('selected') : ''}>${c}</option>`)}</optgroup>`)}`;
-}
-
 export function uploadDialog(resource = null, onDone = () => {}) {
     const editando = !!resource;
+    // Por defecto, la carrera del perfil: no hace falta elegirla cada vez.
+    const carrera = editando ? resource.career : store.user.career;
     openDialog({
         title: editando ? 'Editar documento' : 'Subir documento',
         description: editando ? '' : 'Lo verá toda la comunidad UFG después de pasar la revisión de seguridad.',
@@ -193,18 +193,27 @@ export function uploadDialog(resource = null, onDone = () => {}) {
             </label>
             <label class="field" style="margin-top:16px"><span class="field__label">Título</span>
                 <input class="input" name="title" required maxlength="200" value="${resource?.title || ''}" placeholder="Ej. Guía de normalización con ejercicios"></label>
-            <div class="row">
-                <label class="field"><span class="field__label">Autor</span>
-                    <input class="input" name="author" required maxlength="200" value="${resource?.author || store.user.name}"></label>
-                <label class="field"><span class="field__label">Categoría</span>
-                    <select class="select" name="category" required>${categoryOptions(resource?.category)}</select></label>
+            <label class="field"><span class="field__label">Autor</span>
+                <input class="input" name="author" required maxlength="200" value="${resource?.author || store.user.name}"></label>
+            <div class="field" data-slot="career">
+                <span class="field__label">Carrera</span>
+                ${carrera ? html`<div class="career-chip" data-slot="career-chip">${icon('user')}<span><strong>${editando ? resource.owner_name : store.user.name}</strong> · ${carrera}</span>
+                    <button type="button" class="btn btn--ghost btn--sm" data-action="change-career">Cambiar</button></div>` : ''}
+                <div data-slot="career-pick" ${carrera ? raw('hidden') : ''}>${careerFields()}</div>
             </div>
+            ${categoryFields()}
             <label class="field"><span class="field__label">Etiquetas</span>
                 <input class="input" name="tags" maxlength="300" value="${resource?.tags || ''}" placeholder="Separadas por comas">
                 <span class="chips" style="margin-top:4px">${SUGGESTED_TAGS.map((t) => html`<button type="button" class="chip" data-tag="${t}">${t}</button>`)}</span></label>
             <label class="field"><span class="field__label">Descripción</span>
                 <textarea class="textarea" name="description" rows="3" maxlength="2000" placeholder="¿De qué materia es? ¿Qué incluye?">${resource?.description || ''}</textarea></label>`,
         onOpen: (dlg, form) => {
+            fillCategory(dlg, resource?.category);
+            fillCareer(dlg, carrera).catch((err) => toast(err.message, 'error'));
+            dlg.querySelector('[data-action="change-career"]')?.addEventListener('click', () => {
+                dlg.querySelector('[data-slot="career-chip"]').hidden = true;
+                dlg.querySelector('[data-slot="career-pick"]').hidden = false;
+            });
             const drop = dlg.querySelector('[data-slot="drop"]');
             const input = form.file;
             const nombre = dlg.querySelector('[data-slot="filename"]');
@@ -231,7 +240,7 @@ export function uploadDialog(resource = null, onDone = () => {}) {
         onSubmit: async (form) => {
             if (!editando && !form.file.files.length) throw new Error('Elige el archivo que quieres compartir.');
             if (!form.title.value.trim() || !form.author.value.trim()) throw new Error('El título y el autor son obligatorios.');
-            if (!form.category.value) throw new Error('Elige una categoría para que otros lo encuentren.');
+            if (!form.category.value) throw new Error('Elige la categoría y la materia para que otros lo encuentren.');
             const datos = new FormData(form);
             if (!form.file.files.length) datos.delete('file');
             const r = editando
@@ -265,7 +274,7 @@ export async function libraryView(root, { query = {} }, signal) {
                     </select>
                 </div>
                 <div class="chips" style="margin-bottom:14px" data-slot="scope">
-                    ${[['all', 'Todos'], ['saved', 'Guardados'], ['mine', 'Subidos por mí']].map(([k, l]) => html`<button class="chip" data-scope="${k}" aria-pressed="${estado.scope === k}">${l}</button>`)}
+                    ${[['all', 'Todos'], ...(store.user.career ? [['career', 'Mi carrera']] : []), ['saved', 'Guardados'], ['mine', 'Subidos por mí']].map(([k, l]) => html`<button class="chip" data-scope="${k}" aria-pressed="${estado.scope === k}">${l}</button>`)}
                 </div>
                 <p class="result-count" data-slot="count"></p>
                 <div class="panel doc-list" data-slot="list">${skeletonRows(6)}</div>
@@ -320,7 +329,7 @@ export async function libraryView(root, { query = {} }, signal) {
             setHtml(lista, empty(estado.scope === 'saved'
                 ? { icon: 'bookmark', title: 'Aún no guardas documentos', text: 'Usa el marcador de cada documento para tenerlo a mano aquí.' }
                 : estado.q || estado.category
-                    ? { icon: 'search', title: 'Sin resultados', text: 'Prueba con otras palabras o pregúntale al asistente: busca también dentro del contenido de los archivos.' }
+                    ? { icon: 'search', title: 'Sin resultados', text: 'Prueba con otras palabras o pregúntale a Francis: busca también dentro del contenido de los archivos.' }
                     : { icon: 'library', title: 'La biblioteca está vacía', text: 'Sé la primera persona en compartir material con tu facultad.', action: html`<button class="btn btn--primary" data-action="upload">${icon('upload')}Subir documento</button>` }));
             return;
         }

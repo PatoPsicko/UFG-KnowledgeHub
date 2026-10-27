@@ -7,6 +7,7 @@ import { store } from '../core/store.js';
 import { avatar, errorBox, loading, meter, segmented } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/overlay.js';
+import { careerFields, fillCareer } from '../ui/pickers.js';
 
 const COLORES = ['#0B6FCB', '#F08A0B', '#2E7D6B', '#B5487A', '#6B4FA3', '#C2453A', '#12325A', '#8A6D1F'];
 
@@ -47,7 +48,7 @@ export async function profileView(root, _params, signal) {
                                 ${segmented('theme', [['system', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']], prefs.get('theme'))}</div>
                             <div class="field"><span class="field__label">Animaciones</span>
                                 ${segmented('motion', [['system', 'Automáticas'], ['reduced', 'Reducidas'], ['full', 'Completas']], prefs.get('motion'))}
-                                <span class="field__hint">Las luces del asistente y la pantalla de entrada. «Reducidas» las deja quietas.</span></div>
+                                <span class="field__hint">Las luces de Francis y la pantalla de entrada. «Reducidas» las deja quietas.</span></div>
                             <div class="field"><span class="field__label">Orden de la biblioteca</span>
                                 ${segmented('library_sort', [['recent', 'Recientes'], ['popular', 'Populares'], ['title', 'Por título']], prefs.get('library_sort'))}</div>
                             <p class="field__hint">Se guardan en tu cuenta: te siguen al celular y a otras computadoras.</p>
@@ -64,10 +65,10 @@ export async function profileView(root, _params, signal) {
                         <div class="panel__head"><h2>Datos personales</h2></div>
                         <div class="panel__body">
                             <label class="field"><span class="field__label">Nombre</span><input class="input" name="name" required maxlength="150" value="${u.name}"></label>
-                            <div class="row">
-                                <label class="field"><span class="field__label">Carrera</span><input class="input" name="career" maxlength="100" value="${u.career || ''}" placeholder="Ej. Ingeniería en Ciencias de la Computación"></label>
-                                <label class="field"><span class="field__label">Ciclo</span><input class="input" name="semester" type="number" min="1" max="12" value="${u.semester || ''}"></label>
-                            </div>
+                            <div class="field"><span class="field__label">Tu carrera</span>
+                                <span class="field__hint">Tus documentos la llevan y el dashboard te recomienda material de ella.</span></div>
+                            ${careerFields()}
+                            <label class="field" style="max-width:160px"><span class="field__label">Ciclo</span><input class="input" name="semester" type="number" min="1" max="12" value="${u.semester || ''}"></label>
                             <label class="field"><span class="field__label">Presentación</span>
                                 <textarea class="textarea" name="bio" rows="2" maxlength="280" placeholder="Qué estudias, en qué puedes ayudar...">${u.bio || ''}</textarea></label>
                             <div class="field"><span class="field__label">Color del avatar</span>
@@ -92,6 +93,7 @@ export async function profileView(root, _params, signal) {
                 </div>
             </div>
         </div>`);
+        fillCareer($('[data-form="profile"]', root), u.career).catch((err) => toast(err.message, 'error'));
     }
 
     on(root, 'click', '[data-pref] [data-value]', async (_e, b) => {

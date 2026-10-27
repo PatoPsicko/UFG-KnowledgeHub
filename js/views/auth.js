@@ -27,7 +27,7 @@ function shelf() {
 function loginForm() {
     return html`<form class="auth__form" id="login-form" novalidate>
         <h2>Inicia sesión</h2>
-        <p>Entra con tu correo institucional para ver la biblioteca, el asistente y tus grupos.</p>
+        <p>Entra con tu correo institucional para ver la biblioteca, a Francis y tus grupos.</p>
         <label class="field"><span class="field__label">Correo</span>
             <input class="input" name="email" type="email" autocomplete="email" inputmode="email" placeholder="nombre.apellido@ufg.edu.sv" required></label>
         <label class="field"><span class="field__label">Contraseña</span>
@@ -51,7 +51,7 @@ function registerForm() {
     const colores = ['#0B6FCB', '#F08A0B', '#2E7D6B', '#B5487A', '#6B4FA3', '#C2453A', '#12325A'];
     return html`<form class="auth__form" id="register-form" novalidate>
         <h2>Crea tu cuenta</h2>
-        <p>Comparte material con tu facultad y estudia con el asistente.</p>
+        <p>Comparte material con tu facultad y estudia con Francis, el asistente de la UFG.</p>
         <label class="field"><span class="field__label">Nombre completo</span>
             <input class="input" name="name" autocomplete="name" required maxlength="150"></label>
         <label class="field"><span class="field__label">Correo institucional</span>
@@ -78,11 +78,11 @@ export function renderAuth(root, { onLogin }) {
             <div class="auth__brand"><img src="img/logo_hub.png" alt="UFG Knowledge Hub"></div>
             <div>
                 <h1>Apuntes, guías y proyectos de toda la UFG, en un solo lugar.</h1>
-                <p>Una biblioteca que arman los propios estudiantes, con grupos de trabajo y un asistente que responde citando los documentos.</p>
+                <p>Una biblioteca que arman los propios estudiantes, con grupos de trabajo y Francis, un asistente que responde citando los documentos.</p>
                 ${shelf()}
                 <div class="auth__facts">
                     <span>${icon('shield')}Cada archivo pasa por un vigilante de seguridad</span>
-                    <span>${icon('bulb')}El asistente cita de qué documento sale cada dato</span>
+                    <span>${icon('robot')}Francis cita de qué documento sale cada dato</span>
                 </div>
             </div>
             <div style="font-size:13px;color:#7F95B1">Proyecto académico de la Universidad Francisco Gavidia</div>

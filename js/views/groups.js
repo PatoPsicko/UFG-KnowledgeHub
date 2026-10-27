@@ -236,7 +236,7 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
                         <div class="doc__meta"><span>${r.uploaded_by}</span><span>${timeAgo(r.uploaded_at)}</span>${r.file_size ? html`<span>${fileSize(r.file_size)}</span>` : ''}${scanBadge(r.scan_status)}</div>
                         ${r.description ? html`<p style="font-size:14px;color:var(--ink-2);margin-top:4px">${r.description}</p>` : ''}</div>
                     <div class="doc__actions">
-                        <button class="icon-btn icon-btn--sm" data-res-act="ask" aria-label="Preguntar al asistente" title="Preguntar al asistente">${icon('bulb')}</button>
+                        <button class="icon-btn icon-btn--sm" data-res-act="ask" aria-label="Preguntar a Francis" title="Preguntar a Francis">${icon('robot')}</button>
                         <button class="icon-btn icon-btn--sm" data-res-act="download" aria-label="Descargar" title="Descargar">${icon('download')}</button>
                         ${r.can_delete ? html`<button class="icon-btn icon-btn--sm" data-res-act="delete" aria-label="Eliminar" title="Eliminar">${icon('trash')}</button>` : ''}
                     </div>

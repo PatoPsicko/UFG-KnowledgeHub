@@ -1,8 +1,7 @@
 /**
- * Asistente de estudio («el escritorio»). Se monta en dos sitios:
- *   - Inicio: en la columna derecha, donde antes estaba el chat global.
- *   - #/asistente: a página completa, con el historial de conversaciones.
- * Ambos comparten la conversación en curso.
+ * Francis, el asistente de estudio («el escritorio»). Francis es el robot
+ * mascota de la UFG (Universidad Francisco Gavidia). Vive en su módulo,
+ * #/francis, con el historial de conversaciones.
  *
  * La «luz» del escritorio (ver css: «Luces del asistente») sigue su estado en
  * data-state: idle, thinking (esperando la primera palabra o en cola) y
@@ -37,7 +36,7 @@ export function askAboutDocument(docKey, title) {
     sesion.docScope = { key: docKey, title };
     sesion.conversationId = null;
     sesion.turns = [];
-    go('/asistente');
+    go('/francis');
 }
 
 function notificar() {
@@ -99,7 +98,7 @@ function turnHtml(t, i) {
 function intro(compact) {
     const scope = sesion.docScope;
     return html`<div class="desk-intro">
-        <h3>${scope ? 'Pregunta lo que quieras sobre este documento' : 'Pregúntale a la biblioteca'}</h3>
+        <h3>${scope ? 'Pregúntale a Francis sobre este documento' : 'Hola, soy Francis'}</h3>
         <p>${scope ? 'Puedo resumirlo, explicarte partes o hacerte preguntas de repaso, citando las páginas.'
         : 'Busco en los documentos que puedes ver y te respondo citando de dónde sale cada dato.'}</p>
         ${compact ? '' : html`<p style="margin-top:10px">Sólo hablo de temas de estudio: materias, apuntes, tareas y el material de la UFG 📚</p>`}
@@ -133,14 +132,14 @@ async function abrirFuente(item) {
  * empezar de nuevo desde fuera (la usa la página completa).
  */
 export function mountAssistant(container, { compact = false, signal, onChange } = {}) {
-    setHtml(container, html`<section class="desk" data-state="idle" aria-label="Asistente de estudio">
+    setHtml(container, html`<section class="desk" data-state="idle" aria-label="Francis, asistente de estudio">
         <span class="desk__aura" aria-hidden="true"></span>
         <div class="desk__head">
-            <span class="desk__mark">${icon('bulb')}</span>
-            <div style="min-width:0;flex:1"><div class="desk__title">Asistente de estudio</div>
+            <span class="desk__mark">${icon('robot')}</span>
+            <div style="min-width:0;flex:1"><div class="desk__title">Francis</div>
                 <div class="desk__model" data-slot="model">${modelLine(null)}</div></div>
             <button class="icon-btn icon-btn--sm" data-action="new" title="Nueva conversación" aria-label="Nueva conversación">${icon('plus')}</button>
-            ${compact ? html`<a class="icon-btn icon-btn--sm" href="#/asistente" title="Abrir a pantalla completa" aria-label="Abrir a pantalla completa">${icon('chevronRight')}</a>` : ''}
+            ${compact ? html`<a class="icon-btn icon-btn--sm" href="#/francis" title="Abrir a pantalla completa" aria-label="Abrir a pantalla completa">${icon('chevronRight')}</a>` : ''}
         </div>
         <div data-slot="scope"></div>
         <div class="desk__log" data-slot="log" aria-live="polite"></div>
@@ -148,7 +147,7 @@ export function mountAssistant(container, { compact = false, signal, onChange } 
         <form class="desk__form" data-slot="form">
             <label class="sr-only" for="ai-input">Escribe tu pregunta</label>
             <div class="desk__field"><textarea class="desk__input" id="ai-input" name="q" rows="1" maxlength="2000"
-                placeholder="Pregunta sobre tus materias…" enterkeyhint="send"></textarea></div>
+                placeholder="Pregúntale a Francis sobre tus materias…" enterkeyhint="send"></textarea></div>
             <button class="desk__send" type="submit" aria-label="Enviar pregunta">${icon('send')}</button>
         </form>
         <p class="desk__note">Las respuestas pueden tener errores: revisa las fuentes antes de usarlas en un trabajo.</p>

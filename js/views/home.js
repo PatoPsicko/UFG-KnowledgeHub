@@ -1,4 +1,7 @@
-/** Inicio: el asistente ocupa la columna derecha (donde estaba el chat global). */
+/**
+ * Dashboard: lo de tu carrera. Recién subido y lo más descargado de la carrera
+ * del perfil, tus grupos y tus guardados. Francis vive en su propio módulo.
+ */
 
 import { api } from '../core/api.js';
 import { $, html, on, setHtml } from '../core/dom.js';
@@ -7,7 +10,6 @@ import { store } from '../core/store.js';
 import { typeLabel } from '../data/categories.js';
 import { countBadge, empty, skeletonRows } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
-import { mountAssistant } from './assistant.js';
 import { bindDocActions, docRow, uploadDialog } from './library.js';
 
 function saludo() {
@@ -17,43 +19,46 @@ function saludo() {
     return 'Buenas noches';
 }
 
-export async function homeView(root, _params, signal) {
+export async function dashboardView(root, _params, signal) {
     const user = store.user;
     const nombre = user.name.split(' ')[0];
     let recursos = [];
 
-    setHtml(root, html`<div class="page page--wide">
-        <div class="home">
-            <div>
-                <div class="greeting">
-                    <h1>${saludo()}, ${nombre}</h1>
-                    <p>Busca material de tus materias o pregúntale al asistente de la derecha.</p>
-                </div>
-                <form class="home__search" data-slot="search">
-                    <div class="search">${icon('search')}<input class="input" name="q" type="search" placeholder="¿Qué necesitas estudiar hoy?" aria-label="Buscar en la biblioteca"></div>
-                </form>
-                <div class="stats-line" data-slot="stats"></div>
-                <div class="shortcuts">
-                    <button class="shortcut" data-action="upload"><span class="shortcut__icon">${icon('upload')}</span><span><strong>Subir documento</strong><span>Comparte con tu facultad</span></span></button>
-                    <a class="shortcut shortcut--orange" href="#/grupos"><span class="shortcut__icon">${icon('users')}</span><span><strong>Grupos de trabajo</strong><span>Tareas, archivos y chat</span></span></a>
-                    <a class="shortcut" href="#/anotaciones"><span class="shortcut__icon">${icon('note')}</span><span><strong>Mi espacio</strong><span>Tus notas y archivos</span></span></a>
-                </div>
-                <section class="panel">
-                    <div class="panel__head"><h2>Recién compartido</h2><a class="btn btn--ghost btn--sm" href="#/biblioteca">Ver la biblioteca</a></div>
-                    <div class="doc-list" data-slot="recent">${skeletonRows(4)}</div>
-                </section>
-                <div class="split">
-                    <section class="panel"><div class="panel__head"><h3>Tus grupos</h3><a class="btn btn--ghost btn--sm" href="#/grupos">Todos</a></div>
-                        <div class="mini-list" data-slot="groups"></div></section>
-                    <section class="panel"><div class="panel__head"><h3>Tus guardados</h3><a class="btn btn--ghost btn--sm" href="#/biblioteca?scope=saved">Ver todos</a></div>
-                        <div class="mini-list" data-slot="convs"></div></section>
-                </div>
-            </div>
-            <div class="home__desk" data-slot="desk"></div>
+    const carrera = user.career || '';
+    const deCarrera = carrera ? `&career=${encodeURIComponent(carrera)}` : '';
+
+    setHtml(root, html`<div class="page">
+        <div class="greeting">
+            <h1>${saludo()}, ${nombre}</h1>
+            <p>${carrera ? html`Lo nuevo de <strong>${carrera}</strong>.` : 'Elige tu carrera en tu perfil y aquí verás el material que te sirve.'}</p>
+        </div>
+        ${carrera ? '' : html`<a class="career-cta" href="#/perfil">${icon('user')}<span><strong>Indica tu carrera</strong><span>Así el dashboard te recomienda material de tus materias y tus documentos la llevan.</span></span>${icon('chevronRight')}</a>`}
+        <form class="home__search" data-slot="search">
+            <div class="search">${icon('search')}<input class="input" name="q" type="search" placeholder="¿Qué necesitas estudiar hoy?" aria-label="Buscar en la biblioteca"></div>
+        </form>
+        <div class="stats-line" data-slot="stats"></div>
+        <div class="shortcuts">
+            <button class="shortcut" data-action="upload"><span class="shortcut__icon">${icon('upload')}</span><span><strong>Subir documento</strong><span>${carrera ? 'Para tu carrera' : 'Comparte con la UFG'}</span></span></button>
+            <a class="shortcut shortcut--orange" href="#/francis"><span class="shortcut__icon">${icon('robot')}</span><span><strong>Preguntar a Francis</strong><span>Responde citando documentos</span></span></a>
+            <a class="shortcut" href="#/grupos"><span class="shortcut__icon">${icon('users')}</span><span><strong>Grupos de trabajo</strong><span>Tareas, archivos y chat</span></span></a>
+        </div>
+        <div class="split split--even">
+            <section class="panel">
+                <div class="panel__head"><h2>Recién subido${carrera ? ' en tu carrera' : ''}</h2><a class="btn btn--ghost btn--sm" href="#/biblioteca${carrera ? '?scope=career' : ''}">Ver todo</a></div>
+                <div class="doc-list" data-slot="recent">${skeletonRows(4)}</div>
+            </section>
+            <section class="panel">
+                <div class="panel__head"><h2>${carrera ? 'Lo más usado en tu carrera' : 'Lo más descargado'}</h2></div>
+                <div class="doc-list" data-slot="popular">${skeletonRows(4)}</div>
+            </section>
+        </div>
+        <div class="split">
+            <section class="panel"><div class="panel__head"><h3>Tus grupos</h3><a class="btn btn--ghost btn--sm" href="#/grupos">Todos</a></div>
+                <div class="mini-list" data-slot="groups"></div></section>
+            <section class="panel"><div class="panel__head"><h3>Tus guardados</h3><a class="btn btn--ghost btn--sm" href="#/biblioteca?scope=saved">Ver todos</a></div>
+                <div class="mini-list" data-slot="convs"></div></section>
         </div>
     </div>`);
-
-    mountAssistant($('[data-slot="desk"]', root), { compact: true, signal });
 
     $('[data-slot="search"]', root).addEventListener('submit', (e) => {
         e.preventDefault();
@@ -61,16 +66,17 @@ export async function homeView(root, _params, signal) {
         go(`/biblioteca${q ? `?q=${encodeURIComponent(q)}` : ''}`);
     }, { signal });
 
-    async function cargarRecientes() {
+    const vacio = { icon: 'library', title: 'Todavía no hay documentos', text: carrera ? 'Sé el primero en compartir material de tu carrera.' : 'Sube tus apuntes y ayuda a tu facultad.' };
+    async function cargarLista(slot, orden) {
         try {
-            const datos = await api.get('/api/resources?limit=6&sort=recent');
-            recursos = datos.resources;
-            setHtml($('[data-slot="recent"]', root), recursos.length ? html`${recursos.map(docRow)}`
-                : empty({ icon: 'library', title: 'Todavía no hay documentos', text: 'Sube tus apuntes y ayuda a tu facultad.' }));
+            const datos = await api.get(`/api/resources?limit=5&sort=${orden}${deCarrera}`);
+            recursos = [...recursos.filter((r) => !datos.resources.some((d) => d.id === r.id)), ...datos.resources];
+            setHtml($(`[data-slot="${slot}"]`, root), datos.resources.length ? html`${datos.resources.map(docRow)}` : empty(vacio));
         } catch (err) {
-            setHtml($('[data-slot="recent"]', root), empty({ icon: 'alert', title: 'No se pudo cargar', text: err.message }));
+            setHtml($(`[data-slot="${slot}"]`, root), empty({ icon: 'alert', title: 'No se pudo cargar', text: err.message }));
         }
     }
+    const cargarRecientes = () => Promise.all([cargarLista('recent', 'recent'), cargarLista('popular', 'popular')]);
 
     async function cargarResumen() {
         try {

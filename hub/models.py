@@ -128,6 +128,8 @@ class Resource(db.Model):
     title = db.Column(db.String(200), nullable=False)
     author = db.Column(db.String(200), nullable=False)
     category = db.Column(db.String(100))
+    # Carrera para la que se comparte (por defecto, la de quien lo sube).
+    career = db.Column(db.String(100))
     tags = db.Column(db.String(300))
     description = db.Column(db.Text)
     filename = db.Column(db.String(300), nullable=False)

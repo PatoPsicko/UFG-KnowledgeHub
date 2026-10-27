@@ -80,6 +80,9 @@ _INDICES = (
     'CREATE INDEX IF NOT EXISTS ix_group_msg ON group_message (group_id, id)',
     'CREATE INDEX IF NOT EXISTS ix_notif_user ON notification (user_id, read)',
     'CREATE INDEX IF NOT EXISTS ix_resource_created ON resource (created_at)',
+    'CREATE INDEX IF NOT EXISTS ix_resource_career ON resource (career)',
+    # Documentos anteriores a la columna «career»: toman la carrera de quien los subió.
+    'UPDATE resource SET career = (SELECT career FROM "user" WHERE "user".id = resource.owner_id) WHERE career IS NULL',
 )
 
 

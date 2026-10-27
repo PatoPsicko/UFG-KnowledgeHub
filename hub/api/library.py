@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 
 from flask import Blueprint, jsonify, request, send_file
-from sqlalchemy import func, or_, true
+from sqlalchemy import false, func, or_, true
 
 from ..ai import specs
+from ..catalog import careers_payload, valid_career
 from ..errors import ApiError
 from ..extensions import db
 from ..models import (SCAN_BLOCKED, SCAN_CLEAN, SCAN_PENDING, VISIBLE_STATUSES, Resource, SavedResource, User,
@@ -26,6 +27,7 @@ def serialize(r: Resource, viewer: User, saved_ids: set[int] | None = None) -> d
         'title': r.title,
         'author': r.author,
         'category': r.category or 'Sin categoría',
+        'career': r.career or '',
         'tags': r.tags or '',
         'description': r.description or '',
         'original_filename': display_filename(r.filename),
@@ -76,6 +78,9 @@ def list_resources():
     categoria = (request.args.get('category') or '').strip()
     if categoria:
         consulta = consulta.filter(Resource.category == categoria)
+    carrera = (request.args.get('career') or '').strip()
+    if carrera:
+        consulta = consulta.filter(Resource.career == carrera)
 
     guardados = _saved_ids(viewer.id)
     alcance = request.args.get('scope', 'all')
@@ -83,6 +88,8 @@ def list_resources():
         consulta = consulta.filter(Resource.owner_id == viewer.id)
     elif alcance == 'saved':
         consulta = consulta.filter(Resource.id.in_(guardados or {-1}))
+    elif alcance == 'career':
+        consulta = consulta.filter(Resource.career == viewer.career) if viewer.career else consulta.filter(false())
 
     orden = request.args.get('sort', 'recent')
     if orden == 'popular':
@@ -114,6 +121,15 @@ def categories():
                                    sorted(filas, key=lambda f: -f[1])]}), 200
 
 
+@bp.get('/careers')
+@login_required
+def careers():
+    """Carreras por área, para los desplegables (casi nunca cambian: caché de un día)."""
+    respuesta = jsonify({'groups': careers_payload()})
+    respuesta.headers['Cache-Control'] = 'private, max-age=86400'
+    return respuesta, 200
+
+
 @bp.get('/<int:resource_id>')
 @login_required
 def get_resource(resource_id: int):
@@ -122,11 +138,15 @@ def get_resource(resource_id: int):
     return jsonify({'resource': serialize(r, viewer, _saved_ids(viewer.id))}), 200
 
 
-def _fields(data: dict, *, partial: bool = False) -> dict:
+def _fields(data: dict, *, partial: bool = False, current_career: str | None = None) -> dict:
+    carrera = clean_text(data.get('career'), 'carrera', max_len=100)
+    if not valid_career(carrera, current_career):
+        raise ApiError('Elige una carrera de la lista.', 400, 'invalid_career')
     campos = {
         'title': clean_text(data.get('title'), 'título', required=not partial, max_len=200),
         'author': clean_text(data.get('author'), 'autor', required=not partial, max_len=200),
         'category': clean_text(data.get('category'), 'categoría', max_len=100),
+        'career': carrera,
         'tags': clean_text(data.get('tags'), 'etiquetas', max_len=300),
         'description': clean_text(data.get('description'), 'descripción', max_len=2000),
     }
@@ -139,7 +159,8 @@ def _fields(data: dict, *, partial: bool = False) -> dict:
 @login_required
 def create_resource():
     viewer = current_user()
-    campos = _fields(request.form.to_dict())
+    campos = _fields(request.form.to_dict(), current_career=viewer.career)
+    campos['career'] = campos['career'] or viewer.career
     stored, ruta, size = save_upload(request.files.get('file'), 'public', user_id=viewer.id)
     original = request.files['file'].filename
     check = pipeline.check_upload(ruta, original, 'public', viewer.id)
@@ -165,7 +186,7 @@ def update_resource(resource_id: int):
     if r.owner_id != viewer.id and not viewer.is_admin:
         raise ApiError('Sólo quien subió el documento puede editarlo.', 403)
 
-    for campo, valor in _fields(form_or_json(), partial=True).items():
+    for campo, valor in _fields(form_or_json(), partial=True, current_career=r.career).items():
         if campo in ('title', 'author') and not valor:
             raise ApiError(f'El campo «{campo}» no puede quedar vacío.', 400)
         setattr(r, campo, valor)

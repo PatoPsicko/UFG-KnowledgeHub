@@ -53,14 +53,14 @@ DEMO_EMAIL = 'demo@ufg.edu.sv'
 
 USUARIOS = [
     # clave, nombre, carrera, semestre, color
-    ('ana', 'Ana Martínez', 'Ingeniería en Sistemas', 6, '#3B82F6'),
-    ('carlos', 'Carlos Hernández', 'Ingeniería en Sistemas', 8, '#10B981'),
+    ('ana', 'Ana Martínez', 'Ingeniería en Ciencias de la Computación', 6, '#3B82F6'),
+    ('carlos', 'Carlos Hernández', 'Ingeniería en Ciencias de la Computación', 8, '#10B981'),
     ('lucia', 'Lucía Ramírez', 'Arquitectura', 4, '#F59E0B'),
-    ('diego', 'Diego Flores', 'Administración de Empresas', 5, '#EF4444'),
-    ('sofia', 'Sofía Castillo', 'Psicología', 3, '#8B5CF6'),
+    ('diego', 'Diego Flores', 'Licenciatura en Administración de Empresas', 5, '#EF4444'),
+    ('sofia', 'Sofía Castillo', 'Licenciatura en Psicología', 3, '#8B5CF6'),
     ('javier', 'Javier Morales', 'Ingeniería Civil', 7, '#EC4899'),
-    ('valeria', 'Valeria Romero', 'Medicina', 2, '#14B8A6'),
-    ('andres', 'Andrés López', 'Derecho', 9, '#6366F1'),
+    ('valeria', 'Valeria Romero', 'Licenciatura en Ciencias de la Comunicación', 2, '#14B8A6'),
+    ('andres', 'Andrés López', 'Licenciatura en Ciencias Jurídicas', 9, '#6366F1'),
 ]
 
 
@@ -71,6 +71,19 @@ def email_de(clave):
 
 # --- Contenido -----------------------------------------------------------------
 # Biblioteca: (categoría, autor, etiquetas, [(título, texto), x3])
+# Carrera a la que va dirigido cada tema de la biblioteca (catálogo de hub/catalog.py).
+_COMP = 'Ingeniería en Ciencias de la Computación'
+CARRERA_DE_CATEGORIA = {
+    'Base de Datos': _COMP, 'Programación': _COMP, 'Redes y Seguridad': 'Ingeniería en Sistemas y Redes Informáticas',
+    'Inteligencia Artificial': _COMP, 'Desarrollo Web': _COMP, 'Sistemas Operativos': 'Ingeniería en Sistemas y Redes Informáticas',
+    'Ingeniería de Software': _COMP, 'Cálculo': 'Ingeniería Industrial', 'Estadística': 'Ingeniería Industrial',
+    'Física': 'Ingeniería Eléctrica', 'Química': 'Ingeniería Industrial', 'Álgebra': _COMP,
+    'Diseño Gráfico': 'Licenciatura en Diseño Gráfico', 'Diseño UX/UI': 'Licenciatura en Diseño Gráfico',
+    'Arquitectura': 'Arquitectura', 'Contabilidad': 'Licenciatura en Contaduría Pública', 'Marketing': 'Licenciatura en Mercadeo',
+    'Derecho Civil': 'Licenciatura en Ciencias Jurídicas', 'Psicología': 'Licenciatura en Psicología',
+    'Anatomía': 'Licenciatura en Psicología', 'Inglés': 'Licenciatura en Idioma Inglés', 'Ingeniería Civil': 'Ingeniería Civil',
+}
+
 BIBLIOTECA = [
     ('Base de Datos', 'Ing. Ricardo Menjívar', 'sql, normalización', [
         ('Apuntes de normalización',
@@ -654,7 +667,8 @@ def main():
                 ext = formato(n_doc)
                 archivo = crear_archivo(carpeta, titulo, texto, ext)
                 api.subir(claves[n_doc % len(claves)], '/api/resources', archivo, {
-                    'title': titulo, 'author': autor, 'category': categoria, 'tags': etiquetas})
+                    'title': titulo, 'author': autor, 'category': categoria, 'tags': etiquetas,
+                    'career': CARRERA_DE_CATEGORIA.get(categoria, '')})
                 n_doc += 1
         print(f'Biblioteca: {n_doc} documentos')
 

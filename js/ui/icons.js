@@ -58,6 +58,10 @@ const P = {
     foldRight: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="m14 10 2 2-2 2"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',
+    // Francis, el robot de la UFG: cabeza cuadrada con antena, ojos y orejas.
+    robot: '<rect x="4.5" y="7.5" width="15" height="11.5" rx="3"/><path d="M12 7.5V4.5"/><circle cx="12" cy="3.6" r="1.1"/><circle cx="9.3" cy="12.4" r="1.15" fill="currentColor"/><circle cx="14.7" cy="12.4" r="1.15" fill="currentColor"/><path d="M10 16h4"/><path d="M2.5 11.5v3.5M21.5 11.5v3.5"/>',
+    dashboard: '<rect x="3.5" y="3.5" width="7.5" height="9" rx="1.5"/><rect x="13" y="3.5" width="7.5" height="5.5" rx="1.5"/><rect x="13" y="11" width="7.5" height="9.5" rx="1.5"/><rect x="3.5" y="14.5" width="7.5" height="6" rx="1.5"/>',
+    arrowLeft: '<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
     star: '<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',
 };
 

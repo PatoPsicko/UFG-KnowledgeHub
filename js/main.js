@@ -3,7 +3,7 @@
  *
  *   core/   cliente de la API, plantillas seguras, enrutador, estado, sondeo y preferencias
  *   ui/     iconos, componentes, diálogos y conversación reutilizable
- *   views/  una vista por sección (inicio, biblioteca, asistente, grupos...)
+ *   views/  una vista por sección (librero, dashboard, biblioteca, Francis, grupos...)
  */
 
 import { api } from './core/api.js';
@@ -16,21 +16,24 @@ import { toast } from './ui/overlay.js';
 import { assistantView } from './views/assistant.js';
 import { renderAuth } from './views/auth.js';
 import { groupsView } from './views/groups.js';
-import { homeView } from './views/home.js';
+import { dashboardView } from './views/home.js';
 import { libraryView } from './views/library.js';
 import { notesView } from './views/notes.js';
 import { profileView } from './views/profile.js';
 import { securityView } from './views/security.js';
 import { renderShell, setActiveNav } from './views/shell.js';
+import { shelfView } from './views/shelf.js';
 
 const root = document.getElementById('app-root');
 
 // Tema y animaciones guardados (o los del sistema) antes de pintar nada.
 applyPrefs();
 
-router.route('/inicio', homeView, { title: 'Inicio' });
+router.route('/inicio', shelfView, { title: 'Inicio' });
+router.route('/dashboard', dashboardView, { title: 'Dashboard' });
 router.route('/biblioteca', libraryView, { title: 'Biblioteca' });
-router.route('/asistente', assistantView, { title: 'Asistente' });
+router.route('/francis', assistantView, { title: 'Francis' });
+router.route('/asistente', assistantView, { title: 'Francis' });  // links anteriores
 router.route('/grupos', groupsView, { title: 'Grupos' });
 router.route('/grupos/:id', groupsView, { title: 'Grupo' });
 router.route('/anotaciones', notesView, { title: 'Mi espacio' });
