@@ -1,7 +1,7 @@
 /**
- * Marco de la aplicación. Inicio es el librero (views/shelf.js): cada libro es
- * un módulo. Dentro de un módulo la barra superior tiene «atrás» y la casita
- * para volver al librero; en el celular, además, la barra inferior.
+ * Marco de la aplicación: barra lateral con lomos de libro y notificaciones.
+ * En el celular no hay barra lateral: arriba el logo, el modo oscuro, la
+ * campanita y la cuenta; abajo, la barra con los cinco módulos.
  */
 
 import { api } from '../core/api.js';
@@ -9,14 +9,16 @@ import { $, html, on, raw, setHtml, timeAgo } from '../core/dom.js';
 import { prefs } from '../core/prefs.js';
 import { go } from '../core/router.js';
 import { store } from '../core/store.js';
-import { SECTIONS, sectionTitle } from '../data/sections.js';
+import { SECTIONS } from '../data/sections.js';
 import { avatar, countBadge, empty } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { openDialog, openMenu, toast } from '../ui/overlay.js';
 
-/** Barra inferior del celular: los cinco módulos, al alcance del pulgar. */
+const NAV = SECTIONS;
+
+/** Barra inferior del celular: las mismas secciones, al alcance del pulgar. */
 function tabbarHtml(pulse, activePath) {
-    return html`${SECTIONS.map((it) => html`<a class="tabbar__item" href="#${it.path}" data-path="${it.path}"
+    return html`${NAV.map((it) => html`<a class="tabbar__item" href="#${it.path}" data-path="${it.path}"
         ${activePath.startsWith(it.path) ? html`aria-current="page"` : ''}>${icon(it.icon)}<span>${it.label}</span>${countBadge(it.badge ? it.badge(pulse) : 0)}</a>`)}`;
 }
 
@@ -43,6 +45,15 @@ function notifTarget(n) {
     }
 }
 
+function navHtml(user, pulse, activePath) {
+    const items = [...NAV];
+    return html`
+        ${items.map((it) => html`<a class="nav__item" href="#${it.path}" data-path="${it.path}"
+            ${activePath.startsWith(it.path) ? html`aria-current="page"` : ''}>${icon(it.icon)}<span>${it.label}</span>${countBadge(it.badge ? it.badge(pulse) : 0)}</a>`)}
+        ${user.is_admin ? html`<div class="nav__group">Administración</div>
+            <a class="nav__item" href="#/seguridad" data-path="/seguridad" ${activePath.startsWith('/seguridad') ? html`aria-current="page"` : ''}>${icon('shield')}<span>Seguridad</span></a>` : ''}`;
+}
+
 let shellController = null;
 
 export function renderShell(root, { onLogout }) {
@@ -51,27 +62,42 @@ export function renderShell(root, { onLogout }) {
     shellController = new AbortController();
     const { signal } = shellController;
     const user = store.user;
-    setHtml(root, html`<div class="app" id="app" data-home="true">
+    setHtml(root, html`<div class="app" id="app">
+        <aside class="sidebar" aria-label="Navegación principal">
+            <div class="sidebar__top">
+                <a class="sidebar__brand" href="#/inicio" aria-label="Ir al inicio">
+                    <img src="img/logo_hub.png" alt="UFG Knowledge Hub">
+                    <span class="sidebar__product">Knowledge Hub</span>
+                </a>
+            </div>
+            <nav class="nav" id="nav">${navHtml(user, store.pulse, '/inicio')}</nav>
+            <div class="sidebar__footer">
+                <button class="nav__item side-search" data-action="palette" type="button" title="Ir a… (Ctrl+K)">${icon('search')}<span>Ir a…</span><kbd>Ctrl K</kbd></button>
+                <div class="sidebar__actions">
+                    <button class="theme-switch" type="button" data-action="theme" role="switch" aria-checked="false" aria-label="Modo oscuro">
+                        <span class="theme-switch__track"><span class="theme-switch__thumb">${icon('sun')}</span></span><span>Modo oscuro</span></button>
+                    <div class="bell-wrap">
+                        <button class="icon-btn" data-action="toggle-notifs" data-bell aria-label="Notificaciones" aria-haspopup="true">${icon('bell')}</button>
+                    </div>
+                </div>
+                <button class="nav__item" data-action="share" type="button">${icon('globe')}<span>Compartir (QR)</span></button>
+                <button class="nav__item" data-action="install" type="button" hidden>${icon('download')}<span>Instalar app</span></button>
+                <a class="me" href="#/perfil" id="me">${avatar({ ...user, online: true })}
+                    <span style="min-width:0"><span class="me__name">${user.name}</span><br><span class="me__meta">${user.career || 'Completa tu perfil'}</span></span></a>
+                <button class="nav__item" data-action="logout" type="button">${icon('logout')}<span>Cerrar sesión</span></button>
+            </div>
+        </aside>
+        <div class="drawer-backdrop" data-action="close-nav"></div>
         <div class="main">
             <header class="topbar" id="topbar">
-                <div class="topbar__nav">
-                    <button class="icon-btn" data-action="back" type="button" aria-label="Atrás" title="Atrás">${icon('arrowLeft')}</button>
-                    <a class="icon-btn" href="#/inicio" aria-label="Volver al librero" title="Volver al librero">${icon('home')}</a>
-                </div>
-                <a class="topbar__brand" href="#/inicio" aria-label="Volver al librero"><img src="img/logo_hub.png" alt="UFG Knowledge Hub"></a>
-                <h1 class="topbar__title" id="topbar-title"></h1>
-                <div class="topbar__actions">
-                    <button class="topbar__search only-desktop" data-action="palette" type="button" title="Ir a… (Ctrl+K)">${icon('search')}<span>Ir a…</span><kbd>Ctrl K</kbd></button>
-                    <button class="icon-btn only-desktop" data-action="share" type="button" aria-label="Compartir la app (QR)" title="Compartir la app (QR)">${icon('globe')}</button>
-                    <button class="icon-btn only-desktop" data-action="install" type="button" aria-label="Instalar app" title="Instalar app" hidden>${icon('download')}</button>
-                    <button class="icon-btn" data-action="theme" type="button" role="switch" aria-checked="false" aria-label="Modo oscuro" title="Modo oscuro">${icon('moon')}</button>
-                    <button class="icon-btn" data-action="toggle-notifs" data-bell aria-label="Notificaciones" aria-haspopup="true" title="Notificaciones">${icon('bell')}</button>
-                    <button class="topbar__me" data-action="me" type="button" id="me" aria-haspopup="menu" aria-label="Tu cuenta">${avatar({ ...user, online: true }, 'sm')}</button>
-                </div>
+                <a class="topbar__brand" href="#/inicio" aria-label="Ir al inicio"><img src="img/logo_hub.png" alt="UFG Knowledge Hub"></a>
+                <button class="icon-btn topbar__theme" data-action="theme-mobile" type="button" aria-label="Modo oscuro">${icon('moon')}</button>
+                <button class="icon-btn" data-action="toggle-notifs" data-bell aria-label="Notificaciones" aria-haspopup="true">${icon('bell')}</button>
+                <button class="topbar__me" data-action="me" type="button" id="me-mobile" aria-haspopup="menu" aria-label="Tu cuenta">${avatar({ ...user, online: true }, 'sm')}</button>
             </header>
             <div id="view"></div>
         </div>
-        <nav class="tabbar" id="tabbar" aria-label="Módulos">${tabbarHtml(store.pulse, '/inicio')}</nav>
+        <nav class="tabbar" id="tabbar" aria-label="Secciones">${tabbarHtml(store.pulse, '/inicio')}</nav>
         <div id="notif-slot"></div>
     </div>`);
 
@@ -86,10 +112,10 @@ export function renderShell(root, { onLogout }) {
         const oscuro = prefs.isDark();
         const sw = $('[data-action="theme"]', root);
         sw.setAttribute('aria-checked', String(oscuro));
-        sw.title = oscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro';
-        setHtml(sw, icon(oscuro ? 'sun' : 'moon'));
+        setHtml(sw.querySelector('.theme-switch__thumb'), icon(oscuro ? 'moon' : 'sun'));
+        setHtml($('[data-action="theme-mobile"]', root), icon(oscuro ? 'sun' : 'moon'));
     };
-    on(app, 'click', '[data-action="theme"]', async () => {
+    on(app, 'click', '[data-action="theme"], [data-action="theme-mobile"]', async () => {
         await prefs.set({ theme: prefs.isDark() ? 'light' : 'dark' });
         pintarTema();
     });
@@ -127,34 +153,13 @@ export function renderShell(root, { onLogout }) {
         } catch (err) { toast(err.message, 'error'); }
     });
 
-    // Menú de la cuenta (avatar): perfil, seguridad para admins y salir.
-    on(app, 'click', '[data-action="me"]', (_e, b) => {
-        openMenu(b, [
-            { label: 'Mi perfil', icon: 'user', onSelect: () => go('/perfil') },
-            ...(store.user.is_admin ? [{ label: 'Seguridad', icon: 'shield', onSelect: () => go('/seguridad') }] : []),
-            { label: 'Cerrar sesión', icon: 'logout', danger: true, onSelect: () => onLogout() },
-        ]);
-    });
-
-    // Atrás: vuelve por donde se vino dentro de la app; si se entró directo a un
-    // módulo (link compartido), lleva al librero.
-    const recorrido = [];
-    navegacion = (path) => {
-        if (recorrido.length > 1 && recorrido[recorrido.length - 2] === path) recorrido.pop();
-        else if (recorrido[recorrido.length - 1] !== path) recorrido.push(path);
-        const enCasa = path === '/inicio';
-        app.dataset.home = String(enCasa);
-        document.documentElement.classList.toggle('en-librero', enCasa);
-        setHtml($('#topbar-title', root), sectionTitle(path));
-    };
-    on(app, 'click', '[data-action="back"]', () => {
-        if (recorrido.length > 1) history.back(); else go('/inicio');
-    });
+    // Barra lateral con «lomos de libro» (ver css: sección 20).
+    app.dataset.sidebar = 'lomos';
 
     // Paleta «Ir a…»: salta a una sección o busca en la biblioteca escribiendo.
     function abrirPaleta() {
         if (document.querySelector('.palette')) return;
-        const destinos = [{ path: '/inicio', label: 'Librero (inicio)', icon: 'home' }, ...SECTIONS, ...(store.user.is_admin ? [{ path: '/seguridad', label: 'Seguridad', icon: 'shield' }] : []),
+        const destinos = [...NAV, ...(store.user.is_admin ? [{ path: '/seguridad', label: 'Seguridad', icon: 'shield' }] : []),
             { path: '/perfil', label: 'Mi perfil', icon: 'user' }];
         const capa = document.createElement('div');
         capa.className = 'palette';
@@ -194,6 +199,16 @@ export function renderShell(root, { onLogout }) {
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); abrirPaleta(); }
     }, { signal });
+
+    // Celular: el avatar abre la cuenta (perfil, seguridad para admins y salir).
+    on(app, 'click', '[data-action="me"]', (_e, b) => {
+        openMenu(b, [
+            { label: 'Mi perfil', icon: 'user', onSelect: () => go('/perfil') },
+            ...(store.user.is_admin ? [{ label: 'Seguridad', icon: 'shield', onSelect: () => go('/seguridad') }] : []),
+            { label: 'Cerrar sesión', icon: 'logout', danger: true, onSelect: () => onLogout() },
+        ]);
+    });
+
 
     // Notificaciones
     const slot = $('#notif-slot', root);
@@ -247,7 +262,8 @@ export function renderShell(root, { onLogout }) {
 
     // Contadores al ritmo del pulso.
     store.on('pulse', ({ pulse, previo }) => {
-        const activo = $('#tabbar [aria-current="page"]', root)?.dataset.path || '';
+        const activo = $('#nav [aria-current="page"]', root)?.dataset.path || '';
+        setHtml($('#nav', root), navHtml(store.user, pulse, activo));
         setHtml($('#tabbar', root), tabbarHtml(pulse, activo));
         root.querySelectorAll('[data-bell]').forEach((bell) => {
             bell.querySelector('.badge-dot')?.remove();
@@ -262,7 +278,9 @@ export function renderShell(root, { onLogout }) {
     }, signal);
 
     store.on('user', (u) => {
-        setHtml($('#me', root), avatar({ ...u, online: true }, 'sm'));
+        setHtml($('#me', root), html`${avatar({ ...u, online: true })}
+            <span style="min-width:0"><span class="me__name">${u.name}</span><br><span class="me__meta">${u.career || 'Completa tu perfil'}</span></span>`);
+        setHtml($('#me-mobile', root), avatar({ ...u, online: true }, 'sm'));
     }, signal);
 }
 
@@ -271,11 +289,8 @@ function actualizarTitulo(pulse) {
     document.title = pendientes ? `(${pendientes}) UFG Knowledge Hub` : 'UFG Knowledge Hub';
 }
 
-let navegacion = () => {};
-
 export function setActiveNav(path) {
-    navegacion(path);
-    document.querySelectorAll('#tabbar .tabbar__item').forEach((a) => {
+    document.querySelectorAll('#nav .nav__item[data-path], #tabbar .tabbar__item').forEach((a) => {
         if (path.startsWith(a.dataset.path)) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     });

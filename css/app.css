@@ -1602,53 +1602,24 @@ body { overflow-x: hidden; }
 .share-qr svg { width: 100%; height: auto; display: block; }
 .share-url { margin-top: 12px; text-align: center; font-weight: 600; overflow-wrap: anywhere; color: var(--ufg-blue-600); }
 
-/* --- 21. Librero de inicio, barra superior con «atrás» y casita ---------------------
-   Ya no hay barra lateral: Inicio es un librero (views/shelf.js) y cada libro
-   abre un módulo. Dentro de un módulo, la barra superior lleva atrás, la
-   casita (volver al librero), el título y las acciones de la cuenta. */
-.app { display: block; min-height: 100dvh; }
-.topbar {
-    display: flex; height: 64px; padding: 0 20px; gap: 10px;
-    background: color-mix(in srgb, var(--paper) 90%, transparent);
+/* --- 21. Celular: barra superior sin menú, hojas con scroll y carrera --------------
+   El menú vive en la barra inferior; arriba quedan el logo, el modo oscuro, la
+   campanita y la cuenta (avatar). */
+.topbar__theme { margin-left: auto; }
+.topbar__me { display: none; border: 0; background: none; padding: 3px; border-radius: 50%; margin-left: 2px; }
+.topbar__me .avatar { width: 32px; height: 32px; font-size: 13px; }
+@media (max-width: 980px) {
+    .topbar__me { display: grid; }
+    .topbar .icon-btn svg { width: 21px; height: 21px; }
 }
-.topbar__nav { display: flex; align-items: center; gap: 2px; }
-.topbar__nav svg, .topbar__actions .icon-btn svg { width: 21px; height: 21px; }
-.topbar__brand { display: flex; align-items: center; }
-.topbar__brand img { height: 34px; width: 98px; object-fit: cover; object-position: left center; }
-.topbar__title { font-size: 19px; font-weight: 600; margin: 0 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.topbar__actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-.topbar__search {
-    display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px 0 12px; margin-right: 6px;
-    border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-3); font-size: 14.5px;
-}
-.topbar__search svg { width: 17px; height: 17px; }
-.topbar__search kbd { font: 600 11px var(--font-body); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin-left: 18px; }
-.topbar__search:hover { border-color: #C3CDD9; color: var(--ink-2); }
-.topbar__me { border: 0; background: none; padding: 3px; border-radius: 50%; margin-left: 4px; display: grid; }
-.topbar__me .avatar { width: 34px; height: 34px; font-size: 13.5px; }
-.topbar__me:focus-visible, .book:focus-visible { outline: 3px solid var(--ufg-orange); outline-offset: 3px; }
-.topbar [hidden] { display: none; }
-.page { padding-top: 14px; }
-.assistant-page, .messenger { height: calc(100dvh - 64px - 36px); }
-.notif-panel { position: fixed; top: 60px; right: 16px; bottom: auto; left: auto; z-index: 90; max-height: calc(100dvh - 80px); display: flex; flex-direction: column; }
-.notif-panel .notif-list { overflow-y: auto; }
-
-/* En el librero la barra flota, transparente, sobre la escena oscura. */
-.app[data-home="true"] .topbar { position: absolute; left: 0; right: 0; background: transparent; border: 0; backdrop-filter: none; }
-.app[data-home="true"] .topbar__nav, .app[data-home="true"] .topbar__brand,
-.app[data-home="true"] .topbar__title, .app[data-home="true"] .topbar__search { display: none; }
-.app[data-home="true"] .topbar .icon-btn { color: #E9DCC6; }
-.app[data-home="true"] .topbar .icon-btn:hover { background: rgba(255, 255, 255, .08); color: #fff; }
-.app[data-home="true"] .tabbar { display: none; }
-.app[data-home="true"] .main { padding-bottom: 0; }
-html.en-librero, html.en-librero body { background: #120C08; }
 
 /* Hojas y diálogos: la cabecera y los botones quedan fijos y el contenido se
    desplaza (antes el formulario no se encogía y en el celular no había scroll). */
 dialog.dialog > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .dialog__body { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 
-/* --- La escena: una pared en penumbra con una lámpara cálida arriba --- */
+/* --- Boceto para más adelante: Inicio como librero (js/views/shelf.js, sin ruta) ---
+   La escena: una pared en penumbra con una lámpara cálida arriba --- */
 .lobby {
     --madera: #6E4526; --madera-clara: #8C5A33; --madera-oscura: #3E2614;
     position: relative; min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
@@ -1774,15 +1745,7 @@ dialog.dialog > form { display: flex; flex-direction: column; flex: 1 1 auto; mi
 .cascade { margin-top: 2px; }
 .doc__career { max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* --- Celular y tableta --- */
-@media (max-width: 980px) {
-    .topbar { height: calc(56px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0; gap: 4px; }
-    .topbar__brand { display: none; }
-    .topbar__title { font-size: 17px; margin-left: 2px; }
-    .only-desktop { display: none !important; }
-    .notif-panel { top: auto; left: 12px; right: 12px; width: auto; }
-    .assistant-page, .messenger { height: auto; }
-}
+/* Librero en el celular: dos repisas. */
 @media (max-width: 720px) {
     .lobby { padding: calc(52px + env(safe-area-inset-top)) 14px 24px; }
     .lobby__head { margin-bottom: 16px; }

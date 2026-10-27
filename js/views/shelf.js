@@ -1,4 +1,5 @@
 /**
+ * BOCETO PARA MÁS ADELANTE (sin ruta por ahora; estilos en css/app.css, sección 21).
  * Inicio: un librero de madera visto de frente. Cada libro es un módulo; al
  * pasar el ratón el libro sobresale y al tocarlo se «saca» y abre su sección.
  * En la computadora es una sola repisa; en el celular, dos (3 arriba y 2 abajo).

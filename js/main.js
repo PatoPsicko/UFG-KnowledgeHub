@@ -3,7 +3,7 @@
  *
  *   core/   cliente de la API, plantillas seguras, enrutador, estado, sondeo y preferencias
  *   ui/     iconos, componentes, diálogos y conversación reutilizable
- *   views/  una vista por sección (librero, dashboard, biblioteca, Francis, grupos...)
+ *   views/  una vista por sección (inicio, biblioteca, Francis, grupos...)
  */
 
 import { api } from './core/api.js';
@@ -22,15 +22,14 @@ import { notesView } from './views/notes.js';
 import { profileView } from './views/profile.js';
 import { securityView } from './views/security.js';
 import { renderShell, setActiveNav } from './views/shell.js';
-import { shelfView } from './views/shelf.js';
 
 const root = document.getElementById('app-root');
 
 // Tema y animaciones guardados (o los del sistema) antes de pintar nada.
 applyPrefs();
 
-router.route('/inicio', shelfView, { title: 'Inicio' });
-router.route('/dashboard', dashboardView, { title: 'Dashboard' });
+router.route('/inicio', dashboardView, { title: 'Inicio' });
+router.route('/dashboard', dashboardView, { title: 'Inicio' });
 router.route('/biblioteca', libraryView, { title: 'Biblioteca' });
 router.route('/francis', assistantView, { title: 'Francis' });
 router.route('/asistente', assistantView, { title: 'Francis' });  // links anteriores

@@ -127,21 +127,23 @@ público no se pudo abrir durante la noche (ver Pendiente).
 - Propuestas para la siguiente fase: OCR para PDF escaneados, código QR del
   link en la pantalla de inicio, despliegue en un servidor de la universidad.
 
-## Librero de inicio, Francis y carreras
+## Inicio por carrera, Francis y carreras
 
-- **Inicio es un librero** (`js/views/shelf.js`, CSS sección 21): una repisa de
-  madera con cinco libros (Dashboard, Francis, Biblioteca, Grupos, Mi espacio).
-  En la computadora es una sola repisa; en el celular, dos (3 + 2). Al pasar el
-  ratón el libro sobresale; al tocarlo sale de la repisa y abre el módulo.
-  Sin barra lateral: dentro de cada módulo la barra superior tiene «atrás» y la
-  casita para volver al librero. En el celular sigue la barra inferior, sin
-  menú hamburguesa; «Compartir (QR)» e «Instalar app» sólo en la computadora.
-- **Dashboard** (`#/dashboard`, antes Inicio): recién subido y lo más usado de
-  la carrera del perfil, grupos y guardados. Ya no incluye el chat.
-- **Francis**: el asistente pasa a llamarse como el robot de la UFG, con icono
-  de robot (`#/francis`; `#/asistente` sigue funcionando).
+- **Navegación**: en la computadora, barra lateral con lomos de libro; en el
+  celular, sólo la barra inferior (sin menú hamburguesa). Arriba, en el
+  celular, quedan el logo, el modo oscuro, la campanita y el avatar (perfil,
+  seguridad y cerrar sesión). «Compartir (QR)» e «Instalar app» sólo en la web.
+- **Inicio** (`#/inicio`, también `#/dashboard`): recién subido y lo más usado
+  de la carrera del perfil, grupos y guardados. El chat de Francis ya no está
+  aquí, sólo en su módulo.
+- **Francis**: el asistente se llama como el robot de la UFG, con icono de
+  robot (`#/francis`; `#/asistente` sigue funcionando).
 - **Carreras**: catálogo en `hub/catalog.py`, servido por
   `GET /api/resources/careers` (caché de un día). El perfil y la subida usan
   desplegables en cascada (área → carrera; categoría → materia). Cada documento
   guarda la carrera (`resource.career`, por defecto la de quien lo sube) y la
   biblioteca filtra por `career` o con el chip «Mi carrera» (`scope=career`).
+- **Idea para más adelante: Inicio como librero.** Una repisa de madera con un
+  libro por módulo (una repisa en la web, dos en el celular), que sobresale al
+  pasar el ratón y se «saca» al tocarlo. El boceto funcional quedó en
+  `js/views/shelf.js` (sin ruta) y sus estilos en `css/app.css`, sección 21.
