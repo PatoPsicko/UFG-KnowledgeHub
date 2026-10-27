@@ -1596,3 +1596,8 @@ body { overflow-x: hidden; }
     .app[data-sidebar="lomos"] .nav__count { background: #fff; color: var(--navy); }
     .app[data-sidebar="lomos"] .nav__group { margin-top: 16px; }
 }
+
+/* Diálogo «Compartir»: QR grande sobre blanco (los lectores lo leen mejor). */
+.share-qr { display: grid; place-items: center; padding: 14px; border-radius: var(--r-lg); background: #fff; width: min(280px, 100%); margin: 0 auto; }
+.share-qr svg { width: 100%; height: auto; display: block; }
+.share-url { margin-top: 12px; text-align: center; font-weight: 600; overflow-wrap: anywhere; color: var(--ufg-blue-600); }

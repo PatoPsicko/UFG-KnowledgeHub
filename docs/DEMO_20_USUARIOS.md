@@ -27,6 +27,23 @@ asistente de IA. Todo gratis.
    documentos, grupos y cuentas de prueba (correos `@prueba.ufg.edu.sv`,
    contraseña en el propio script).
 
+## 1b. Link fijo con Tailscale Funnel (una sola vez)
+
+Así el link no cambia nunca: la app instalada en los celulares y el QR sirven
+siempre, mientras la PC esté encendida con `iniciar.bat` abierto.
+
+1. Crea una cuenta gratis en https://tailscale.com (con Google, Microsoft o GitHub).
+2. Instala Tailscale en esta PC: `winget install Tailscale.Tailscale` y abre
+   la app para iniciar sesión con esa cuenta.
+3. La primera vez que `iniciar.bat` active Funnel, Tailscale muestra un enlace
+   para permitirlo (HTTPS y Funnel en la consola de administración): ábrelo y
+   acepta.
+4. Listo: `iniciar.bat` muestra `https://<tu-pc>.<tu-red>.ts.net`, siempre el mismo,
+   y un QR en la ventana. El mismo QR está en la app: menú → **Compartir (QR)**.
+
+Sin Tailscale, `iniciar.bat` usa el túnel rápido de Cloudflare (gratis, pero el
+link cambia cada vez). Al cerrar `iniciar.bat` la PC deja de estar publicada.
+
 ## 2. Encender
 
 Doble clic en **`iniciar.bat`**. Al cabo de unos segundos la ventana muestra:

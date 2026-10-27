@@ -26,3 +26,6 @@ chromadb==1.5.9        # índice vectorial HNSW
 
 # Pruebas automáticas (python -m pytest).
 pytest==8.4.2
+
+# Código QR del link para compartir (puro Python, sin dependencias).
+qrcode==8.2

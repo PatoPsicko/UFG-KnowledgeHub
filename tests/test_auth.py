@@ -151,3 +151,18 @@ def test_preferences_are_saved_per_user(make_user):
     assert beto.get('/api/profile/preferences').get_json()['preferences']['theme'] == 'system'
     assert ana.put('/api/profile/preferences', {'theme': 'rosa'}).status_code == 400
     assert ana.put('/api/profile/preferences', {'color_fondo': 'x'}).status_code == 400
+
+
+def test_share_link_and_qr(app, make_user):
+    import os
+    ana = make_user('Ana')
+    datos = ana.get('/api/share').get_json()
+    assert datos['url'].startswith('http') and datos['svg'].lstrip().startswith('<')
+    # Con el link que deja iniciar.ps1 (Tailscale Funnel) se usa ése, y es fijo.
+    with open(os.path.join(app.instance_path, 'link_publico.txt'), 'w', encoding='utf-8') as fh:
+        fh.write('https://mi-pc.mi-red.ts.net')
+    try:
+        datos = ana.get('/api/share').get_json()
+        assert datos['url'] == 'https://mi-pc.mi-red.ts.net' and datos['fixed'] is True
+    finally:
+        os.remove(os.path.join(app.instance_path, 'link_publico.txt'))

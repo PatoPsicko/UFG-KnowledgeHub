@@ -4,13 +4,13 @@
  */
 
 import { api } from '../core/api.js';
-import { $, html, on, setHtml, timeAgo } from '../core/dom.js';
+import { $, html, on, raw, setHtml, timeAgo } from '../core/dom.js';
 import { prefs } from '../core/prefs.js';
 import { go } from '../core/router.js';
 import { store } from '../core/store.js';
 import { avatar, countBadge, empty } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
-import { toast } from '../ui/overlay.js';
+import { openDialog, toast } from '../ui/overlay.js';
 
 const NAV = [
     { path: '/inicio', label: 'Inicio', icon: 'home' },
@@ -84,6 +84,7 @@ export function renderShell(root, { onLogout }) {
                         <button class="icon-btn" data-action="toggle-notifs" data-bell aria-label="Notificaciones" aria-haspopup="true">${icon('bell')}</button>
                     </div>
                 </div>
+                <button class="nav__item" data-action="share" type="button">${icon('globe')}<span>Compartir (QR)</span></button>
                 <button class="nav__item" data-action="install" type="button" hidden>${icon('download')}<span>Instalar app</span></button>
                 <a class="me" href="#/perfil" id="me">${avatar({ ...user, online: true })}
                     <span style="min-width:0"><span class="me__name">${user.name}</span><br><span class="me__meta">${user.career || 'Completa tu perfil'}</span></span></a>
@@ -136,6 +137,24 @@ export function renderShell(root, { onLogout }) {
         store.installPrompt = null;
         pintarInstalar();
     });
+    // «Compartir»: link de la app y su QR para que entren escaneándolo.
+    on(app, 'click', '[data-action="share"]', async () => {
+        try {
+            const { url, svg, fixed } = await api.get('/api/share');
+            const dlg = openDialog({
+                title: 'Comparte la app',
+                description: fixed ? 'Este link es fijo: sirve hoy y la próxima vez.' : 'Este link cambia cada vez que se enciende el servidor.',
+                body: html`<div class="share-qr">${raw(svg)}</div><p class="share-url">${url}</p>`,
+                submitLabel: 'Copiar link',
+                cancelLabel: 'Cerrar',
+                onSubmit: async () => {
+                    try { await navigator.clipboard.writeText(url); toast('Link copiado'); } catch { toast(url, 'info', 8000); }
+                },
+            });
+            dlg.querySelector('.share-qr svg')?.setAttribute('role', 'img');
+        } catch (err) { toast(err.message, 'error'); }
+    });
+
     // Barra lateral con «lomos de libro» (ver css: sección 20).
     app.dataset.sidebar = 'lomos';
 

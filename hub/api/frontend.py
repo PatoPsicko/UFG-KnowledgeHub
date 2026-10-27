@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, send_from_directory
 
 from ..config import ROOT_DIR
 from ..errors import ApiError
+from ..utils import login_required
 
 bp = Blueprint('frontend', __name__)
 
@@ -46,6 +47,39 @@ def service_worker():
 def favicon():
     return send_from_directory(os.path.join(ROOT_DIR, 'img', 'icons'), 'favicon-32.png', mimetype='image/png',
                                max_age=86400)
+
+
+def public_url() -> str:
+    """Link para compartir: el que dejó iniciar.ps1 (Tailscale o Cloudflare), el de
+    APP_PUBLIC_URL en .env o, si no hay ninguno, la dirección con la que se entró."""
+    from flask import current_app, request
+    ruta = os.path.join(current_app.instance_path, 'link_publico.txt')
+    try:
+        with open(ruta, encoding='utf-8') as fh:
+            guardado = fh.read().strip()
+        if guardado.startswith('https://'):
+            return guardado
+    except OSError:
+        pass
+    return current_app.config.get('APP_PUBLIC_URL') or request.host_url.rstrip('/')
+
+
+@bp.get('/api/share')
+@login_required
+def share():
+    """Link de la app y su código QR (SVG) para que otros entren escaneándolo."""
+    import io
+
+    import qrcode
+    import qrcode.image.svg
+
+    url = public_url()
+    qr = qrcode.QRCode(border=2, image_factory=qrcode.image.svg.SvgPathImage)
+    qr.add_data(url)
+    salida = io.BytesIO()
+    qr.make_image().save(salida)
+    return jsonify({'url': url, 'svg': salida.getvalue().decode('utf-8'),
+                    'fixed': 'ts.net' in url or (not url.endswith('trycloudflare.com') and url.startswith('https://'))}), 200
 
 
 @bp.get('/api/health')
