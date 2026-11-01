@@ -85,7 +85,17 @@ def build_config(instance_path: str, overrides: dict | None = None) -> dict:
         # cuando otro hilo está escribiendo (SQLite admite un escritor a la vez).
         'SQLALCHEMY_ENGINE_OPTIONS': {'pool_pre_ping': True, 'connect_args': {'timeout': 15}},
         'JWT_SECRET_KEY': overrides.get('JWT_SECRET_KEY') or _jwt_secret(instance_path),
-        'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=env_int('JWT_HOURS', 24)),
+        # Sesiones: el token de acceso dura poco y el navegador lo renueva solo
+        # con la cookie de renovación mientras la sesión siga abierta. Una sesión
+        # se cierra tras SESSION_IDLE_DAYS sin uso o SESSION_MAX_DAYS desde que
+        # se abrió, aunque se use todos los días.
+        'JWT_ACCESS_TOKEN_EXPIRES': timedelta(minutes=env_int('JWT_MINUTES', 30)),
+        'SESSION_IDLE_DAYS': env_int('SESSION_IDLE_DAYS', 14),
+        'SESSION_MAX_DAYS': env_int('SESSION_MAX_DAYS', 60),
+        # Los administradores necesitan verificación en dos pasos para el panel de Seguridad.
+        'ADMIN_REQUIRE_2FA': env_bool('ADMIN_REQUIRE_2FA', True),
+        # Días que se guarda la bitácora de seguridad.
+        'AUDIT_RETENTION_DAYS': env_int('AUDIT_RETENTION_DAYS', 180),
         'UPLOAD_FOLDER': upload_folder,
         # 25 MB por petición: suficiente para presentaciones y PDF de clase.
         # (+1 MB de margen para los campos del formulario multipart).

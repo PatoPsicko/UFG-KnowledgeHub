@@ -1,15 +1,49 @@
-/** Mi perfil: datos, foto, color, contraseña y aportes. */
+/** Mi perfil: datos, foto, color, contraseña, acceso (sesiones y verificación en dos pasos) y aportes. */
 
 import { api } from '../core/api.js';
-import { $, fileSize, html, longDate, on, setHtml } from '../core/dom.js';
+import { $, fileSize, html, longDate, on, setHtml, timeAgo } from '../core/dom.js';
 import { prefs } from '../core/prefs.js';
 import { store } from '../core/store.js';
 import { avatar, errorBox, loading, meter, segmented } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
-import { toast } from '../ui/overlay.js';
+import { confirmDialog, toast } from '../ui/overlay.js';
 import { careerFields, fillCareer } from '../ui/pickers.js';
+import { openDisableTwoFactor, openNewRecoveryCodes, openTwoFactorSetup } from '../ui/twofactor.js';
 
 const COLORES = ['#0B6FCB', '#F08A0B', '#2E7D6B', '#B5487A', '#6B4FA3', '#C2453A', '#12325A', '#8A6D1F'];
+const esCelular = (device) => /Android|iPhone|iPad/.test(device);
+
+function dosPasos(st) {
+    if (!st) return '';
+    const texto = st.enabled
+        ? `Activa: al entrar se pide un código de tu celular. Te quedan ${st.recovery_left} códigos de respaldo.`
+        : st.required
+            ? 'Los administradores la necesitan para entrar al panel de Seguridad.'
+            : 'Además de la contraseña, pide un código que cambia cada 30 segundos en tu celular.';
+    return html`<div class="access-row">
+        <span class="access-row__icon ${st.enabled ? 'is-on' : ''}">${icon('shield')}</span>
+        <div class="access-row__text"><strong>Verificación en dos pasos</strong><p>${texto}</p></div>
+        <div class="access-row__actions">${st.enabled
+            ? html`<button type="button" class="btn btn--secondary btn--sm" data-action="2fa-codes">Códigos nuevos</button>
+                ${st.required ? '' : html`<button type="button" class="btn btn--ghost btn--sm" data-action="2fa-off">Desactivar</button>`}`
+            : html`<button type="button" class="btn btn--primary btn--sm" data-action="2fa-on">${icon('shield')}Activar</button>`}</div>
+    </div>`;
+}
+
+function sesiones(lista) {
+    const otras = lista.filter((s) => !s.current).length;
+    return html`<h3 class="access__sub">Dónde tienes la sesión abierta</h3>
+        <ul class="sessions">${lista.map((s) => html`<li class="session">
+            <span class="session__icon">${icon(esCelular(s.device) ? 'phone' : 'monitor')}</span>
+            <div class="session__text">
+                <strong>${s.device}</strong>${s.current ? html`<span class="tag">Este dispositivo</span>` : ''}
+                <span>${s.current ? 'Activa ahora' : `Activa ${timeAgo(s.last_seen_at)}`}${s.ip ? ` · IP ${s.ip}` : ''} · desde ${longDate(s.created_at)}</span>
+            </div>
+            ${s.current ? '' : html`<button type="button" class="btn btn--ghost btn--sm" data-session="${s.id}">Cerrar</button>`}
+        </li>`)}</ul>
+        ${otras ? html`<button type="button" class="btn btn--secondary btn--sm" data-action="revoke-others">${icon('logout')}${otras === 1 ? 'Cerrar la otra sesión' : `Cerrar las otras ${otras} sesiones`}</button>` : ''}
+        <p class="field__hint" style="margin-top:10px">Una sesión se cierra sola tras 14 días sin usarla. Si no reconoces un dispositivo, ciérralo y cambia tu contraseña.</p>`;
+}
 
 export async function profileView(root, _params, signal) {
     setHtml(root, html`<div class="page">${loading()}</div>`);
@@ -90,11 +124,48 @@ export async function profileView(root, _params, signal) {
                         </div>
                         <div class="panel__foot" style="display:flex;justify-content:flex-end"><button class="btn btn--secondary" type="submit">${icon('key')}Cambiar contraseña</button></div>
                     </form>
+                    <section class="panel" id="acceso">
+                        <div class="panel__head"><h2>Acceso y sesiones</h2></div>
+                        <div class="panel__body" data-slot="access">${loading()}</div>
+                    </section>
                 </div>
             </div>
         </div>`);
         fillCareer($('[data-form="profile"]', root), u.career).catch((err) => toast(err.message, 'error'));
+        acceso();
     }
+
+    async function acceso() {
+        const slot = $('[data-slot="access"]', root);
+        try {
+            const [st, { sessions: lista }] = await Promise.all([api.get('/api/auth/2fa'), api.get('/api/auth/sessions')]);
+            if (!slot.isConnected) return;
+            if (st.enabled !== store.user.two_factor_enabled) store.setUser({ ...store.user, two_factor_enabled: st.enabled });
+            setHtml(slot, html`${dosPasos(st)}${sesiones(lista)}`);
+        } catch (err) {
+            setHtml(slot, errorBox(err));
+        }
+    }
+
+    on(root, 'click', '[data-action="2fa-on"]', () => openTwoFactorSetup({ onDone: acceso }), signal);
+    on(root, 'click', '[data-action="2fa-codes"]', () => openNewRecoveryCodes({ onDone: acceso }), signal);
+    on(root, 'click', '[data-action="2fa-off"]', () => openDisableTwoFactor({ onDone: acceso }), signal);
+    on(root, 'click', '[data-session]', async (_e, b) => {
+        b.disabled = true;
+        try {
+            await api.del(`/api/auth/sessions/${b.dataset.session}`);
+            toast('Sesión cerrada en ese dispositivo');
+            acceso();
+        } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+    }, signal);
+    on(root, 'click', '[data-action="revoke-others"]', async () => {
+        if (!await confirmDialog({ title: 'Cerrar las otras sesiones', text: 'Se cerrará tu cuenta en todos los demás celulares y computadoras. Esta queda abierta.', confirmLabel: 'Cerrar sesiones' })) return;
+        try {
+            const r = await api.post('/api/auth/sessions/revoke-others');
+            toast(r.closed === 1 ? 'Se cerró 1 sesión' : `Se cerraron ${r.closed} sesiones`);
+            acceso();
+        } catch (err) { toast(err.message, 'error'); }
+    }, signal);
 
     on(root, 'click', '[data-pref] [data-value]', async (_e, b) => {
         const grupo = b.closest('[data-pref]');
@@ -123,9 +194,10 @@ export async function profileView(root, _params, signal) {
                 toast('Perfil actualizado');
                 pintar();
             } else {
-                await api.post('/api/profile/password', datos);
+                const r = await api.post('/api/profile/password', datos);
                 form.reset();
-                toast('Contraseña actualizada');
+                toast(r.closed_sessions ? `Contraseña actualizada. Se cerró tu sesión en ${r.closed_sessions === 1 ? 'otro dispositivo' : `otros ${r.closed_sessions} dispositivos`}.` : 'Contraseña actualizada');
+                acceso();
             }
         } catch (err) {
             setHtml(slot, errorBox(err));

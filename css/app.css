@@ -1766,3 +1766,59 @@ dialog.dialog > form { display: flex; flex-direction: column; flex: 1 1 auto; mi
     .book__foot { font-size: 9.5px; }
     .book--lean { margin-right: 22px; }
 }
+
+/* ==========================================================================
+   22. Acceso: verificación en dos pasos, sesiones y bitácora
+   ========================================================================== */
+.input--code { font-family: var(--font-mono); font-size: 22px; letter-spacing: .3em; text-align: center; height: 52px; }
+.input--code::placeholder { letter-spacing: .3em; color: var(--line); }
+
+.steps-mini { margin: 0 0 14px 18px; display: grid; gap: 6px; color: var(--ink-2); font-size: 14.5px; }
+.qr-box { display: grid; justify-items: center; gap: 10px; margin-bottom: 14px; }
+/* Fondo blanco siempre: las apps no leen bien un QR sobre fondo oscuro. */
+.qr { width: 200px; height: 200px; padding: 8px; background: #fff; border-radius: var(--r-md); border: 1px solid var(--line); }
+.qr-box details { font-size: 14px; color: var(--ink-2); text-align: center; }
+.qr-box summary { cursor: pointer; }
+.secret { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 15px; letter-spacing: .06em; word-break: break-all; user-select: all; }
+.recovery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; padding: 0; list-style: none; counter-reset: c; }
+.recovery li { padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); text-align: center; }
+.recovery code { font-family: var(--font-mono); font-size: 15.5px; letter-spacing: .05em; user-select: all; }
+
+.access-row { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--line-2); }
+.access-row__icon { display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: 10px; background: var(--line-2); color: var(--ink-3); }
+.access-row__icon.is-on { background: var(--success-50); color: var(--success); }
+.access-row__icon svg { width: 20px; height: 20px; }
+.access-row__text { flex: 1; min-width: 0; }
+.access-row__text p { margin-top: 2px; font-size: 14px; color: var(--ink-2); }
+.access-row__actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.access__sub { margin: 16px 0 6px; font-size: 15px; }
+.sessions { list-style: none; margin: 0 0 12px; padding: 0; }
+.session { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+.session:last-child { border-bottom: 0; }
+.session__icon { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 9px; background: var(--ufg-blue-50); color: var(--ufg-blue); }
+.session__icon svg { width: 18px; height: 18px; }
+.session__text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.session__text span:last-child { flex-basis: 100%; font-size: 13.5px; color: var(--ink-3); }
+.session .tag { background: var(--success-50); color: var(--success); }
+
+.gate { max-width: 520px; margin: 40px auto; padding: 32px 28px; text-align: center; display: grid; justify-items: center; gap: 10px; }
+.gate__icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: var(--ufg-blue-50); color: var(--ufg-blue); }
+.gate__icon svg { width: 28px; height: 28px; }
+.gate p { color: var(--ink-2); }
+.gate .btn { margin-top: 8px; }
+
+.audit-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 14px; }
+.audit-tools .chips { margin: 0; }
+.audit-tools .search { flex: 1 1 240px; max-width: 360px; }
+.audit td { vertical-align: top; }
+.audit-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; vertical-align: 1px; background: var(--line); }
+.audit-dot--ok { background: var(--success); }
+.audit-dot--warn { background: var(--ufg-orange); }
+.audit-dot--bad { background: var(--danger); }
+
+@media (max-width: 720px) {
+    .access-row { flex-wrap: wrap; }
+    .access-row__actions { width: 100%; justify-content: flex-start; padding-left: 50px; }
+    .gate { margin: 16px auto; padding: 24px 18px; }
+    .audit-tools .search { max-width: none; }
+}

@@ -3,16 +3,19 @@
  *
  * Lo limpio se publica solo: aquí sólo llega lo que el vigilante dejó en
  * cuarentena (dudoso o peligroso), con su motivo, para aprobarlo o rechazarlo.
- * También muestra cuánta cuota gratuita le queda a cada modelo de IA y el
- * espacio de la carpeta de archivos.
+ * También muestra cuánta cuota gratuita le queda a cada modelo de IA, el
+ * espacio de la carpeta de archivos y la bitácora de seguridad. Con
+ * ADMIN_REQUIRE_2FA, antes pide la verificación en dos pasos.
  */
 
 import { api } from '../core/api.js';
-import { $, fileSize, html, longDate, on, setHtml, timeAgo } from '../core/dom.js';
+import { $, debounce, fileSize, html, longDate, on, setHtml, timeAgo } from '../core/dom.js';
+import { resolve } from '../core/router.js';
 import { store } from '../core/store.js';
 import { avatar, empty, loading, meter, scanBadge } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { closeDrawer, confirmDialog, openDrawer, toast } from '../ui/overlay.js';
+import { openStepUp, openTwoFactorSetup } from '../ui/twofactor.js';
 
 const TIPO = { public: 'Biblioteca', group: 'Grupo', private: 'Privado', avatar: 'Foto de perfil' };
 const FILTROS = [['quarantine', 'En cuarentena'], ['', 'Todos'], ['blocked', 'Bloqueados'], ['pending', 'En proceso'], ['clean', 'Limpios']];
@@ -86,25 +89,126 @@ function detalle(s) {
         </div>`;
 }
 
+/* --- Bitácora -------------------------------------------------------------------- */
+
+// [texto, tono]: tono «bad» = intento sospechoso, «warn» = cambio importante, «ok» = normal.
+const ACCIONES = {
+    login_ok: ['Inició sesión', 'ok'],
+    login_failed: ['Contraseña incorrecta', 'bad'],
+    login_blocked: ['Intento con el correo bloqueado', 'bad'],
+    login_2fa_failed: ['Código de verificación incorrecto', 'bad'],
+    logout: ['Cerró sesión', ''],
+    session_revoked: ['Cerró una sesión de otro dispositivo', ''],
+    sessions_revoked_others: ['Cerró sus otras sesiones', ''],
+    token_reuse: ['Sesión cerrada por posible robo', 'bad'],
+    password_changed: ['Cambió su contraseña', 'warn'],
+    register: ['Creó su cuenta', 'ok'],
+    email_verified: ['Confirmó su correo', 'ok'],
+    '2fa_enabled': ['Activó la verificación en dos pasos', 'ok'],
+    '2fa_disabled': ['Desactivó la verificación en dos pasos', 'warn'],
+    '2fa_step_up': ['Confirmó la sesión con su código', ''],
+    '2fa_recovery_used': ['Usó un código de respaldo', 'warn'],
+    '2fa_recovery_regenerated': ['Generó códigos de respaldo nuevos', ''],
+    '2fa_reset': ['Le quitaron la verificación en dos pasos', 'warn'],
+    scan_approved: ['Aprobó un archivo en cuarentena', 'ok'],
+    scan_rejected: ['Rechazó un archivo', 'warn'],
+    scan_rescan: ['Mandó a revisar de nuevo un archivo', ''],
+    role_granted: ['Recibió el rol de administrador', 'warn'],
+    role_removed: ['Perdió el rol de administrador', 'warn'],
+};
+const GRUPOS = [['', 'Todo'], ['failed', 'Intentos fallidos'], ['login', 'Entradas'], ['sessions', 'Sesiones'],
+    ['2fa', 'Dos pasos'], ['admin', 'Panel']];
+
+function detalleEvento(e) {
+    const d = e.details || {};
+    const partes = [];
+    if (d.reason === 'unknown_email') partes.push('el correo no tiene cuenta');
+    if (d.file) partes.push(d.file);
+    if (d.device && e.action !== 'login_ok') partes.push(d.device);
+    if (d.closed !== undefined) partes.push(d.closed === 1 ? '1 sesión cerrada' : `${d.closed} sesiones cerradas`);
+    if (d.two_factor) partes.push('con código');
+    if (d.left !== undefined) partes.push(`le quedan ${d.left}`);
+    if (d.via) partes.push(`por ${d.via}`);
+    return partes.join(' · ');
+}
+
+function tablaBitacora(eventos, haySiguiente) {
+    if (!eventos.length) return empty({ icon: 'history', title: 'Sin eventos', text: 'No hay registros con este filtro.' });
+    return html`<table class="table audit"><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué pasó</th><th>Dispositivo e IP</th></tr></thead>
+        <tbody>${eventos.map((e) => {
+            const [texto, tono] = ACCIONES[e.action] || [e.action, ''];
+            const extra = detalleEvento(e);
+            return html`<tr>
+                <td class="muted" title="${longDate(e.created_at)}">${timeAgo(e.created_at)}</td>
+                <td><strong>${e.name || e.email || 'Sin cuenta'}</strong>${e.name && e.email ? html`<div class="muted">${e.email}</div>` : ''}</td>
+                <td><span class="audit-dot audit-dot--${tono || 'none'}"></span>${texto}${extra ? html`<div class="muted">${extra}</div>` : ''}</td>
+                <td class="muted">${e.device || ''}${e.ip ? html`<div>${e.ip}</div>` : ''}</td>
+            </tr>`;
+        })}</tbody></table>
+        ${haySiguiente ? html`<div style="padding:12px;text-align:center"><button class="btn btn--secondary btn--sm" data-action="audit-more">Cargar más</button></div>` : ''}`;
+}
+
+/* --- Puerta: verificación en dos pasos ------------------------------------------- */
+
+function puerta(root, err) {
+    const configurar = err.code === 'two_factor_setup';
+    setHtml(root, html`<div class="page"><section class="panel gate">
+        <span class="gate__icon">${icon('shield')}</span>
+        <h2>${configurar ? 'Activa la verificación en dos pasos' : 'Confirma que eres tú'}</h2>
+        <p>${err.message}</p>
+        <p class="muted">El panel decide qué archivos se publican y guarda la bitácora de la plataforma, por eso pide algo más que la contraseña.</p>
+        <button class="btn btn--primary" data-action="gate">${icon(configurar ? 'shield' : 'key')}${configurar ? 'Activar ahora' : 'Escribir código'}</button>
+    </section></div>`);
+    $('[data-action="gate"]', root).addEventListener('click', () =>
+        (configurar ? openTwoFactorSetup : openStepUp)({ onDone: () => resolve() }));
+}
+
 export async function securityView(root, _params, signal) {
     if (!store.user.is_admin) {
         setHtml(root, html`<div class="page">${empty({ icon: 'lock', title: 'Sólo para administradores', text: 'Pide a la coordinación que agregue tu correo a ADMIN_EMAILS.' })}</div>`);
         return;
     }
+    setHtml(root, html`<div class="page">${loading()}</div>`);
+    let inicial = null;
+    try {
+        inicial = await api.get('/api/admin/overview');
+    } catch (err) {
+        if (['two_factor_setup', 'two_factor_step_up'].includes(err.code)) return puerta(root, err);
+    }
+
+    let pestana = 'files';
     let filtro = 'quarantine';
     let escaneos = [];
+    let grupo = '';
+    let busqueda = '';
+    let eventos = [];
+    let siguiente = null;
 
     setHtml(root, html`<div class="page page--wide">
         <div class="page-head"><div><h1>Seguridad</h1><p>Todo archivo pasa por tres barreras. Lo limpio se publica solo: aquí sólo decides sobre lo que quedó en cuarentena.</p></div>
             <div class="page-head__actions"><button class="btn btn--secondary" data-action="refresh">${icon('refresh')}Actualizar</button></div></div>
-        <div data-slot="overview">${loading()}</div>
-        <div class="chips" style="margin:6px 0 14px" data-slot="filters"></div>
-        <section class="panel table-wrap" data-slot="table">${loading()}</section>
+        <div class="tabs" role="tablist">
+            <button class="tab" role="tab" data-tab="files" aria-selected="true">${icon('shield')}Archivos</button>
+            <button class="tab" role="tab" data-tab="audit" aria-selected="false">${icon('history')}Bitácora</button>
+        </div>
+        <div data-pane="files">
+            <div data-slot="overview">${loading()}</div>
+            <div class="chips" style="margin:6px 0 14px" data-slot="filters"></div>
+            <section class="panel table-wrap" data-slot="table">${loading()}</section>
+        </div>
+        <div data-pane="audit" hidden>
+            <div class="audit-tools">
+                <div class="chips">${GRUPOS.map(([k, l]) => html`<button class="chip" data-group="${k}" aria-pressed="${k === grupo}">${l}</button>`)}</div>
+                <div class="search">${icon('search')}<input class="input" type="search" data-audit-q placeholder="Buscar por correo, IP o archivo" aria-label="Buscar en la bitácora"></div>
+            </div>
+            <section class="panel table-wrap" data-slot="audit">${loading()}</section>
+            <p class="field__hint" style="margin-top:10px">Se guardan los últimos 180 días (AUDIT_RETENTION_DAYS).</p>
+        </div>
     </div>`);
 
-    async function resumen() {
+    async function resumen(precargado) {
         try {
-            const o = await api.get('/api/admin/overview');
+            const o = precargado || await api.get('/api/admin/overview');
             const ia = o.ai || {};
             const sc = o.scans || {};
             setHtml($('[data-slot="overview"]', root), html`<div class="layers">
@@ -117,6 +221,8 @@ export async function securityView(root, _params, signal) {
                 <span><strong>${o.quarantine ?? 0}</strong>en cuarentena</span><span><strong>${sc.clean || 0}</strong>publicados solos</span>
                 <span><strong>${sc.pending || 0}</strong>en revisión</span><span><strong>${o.blocked_hashes}</strong>huellas vetadas</span>
                 <span><strong>${o.index?.documentos ?? 0}</strong>documentos indexados para el asistente</span>
+                <span><strong>${o.active_sessions ?? 0}</strong>sesiones activas hoy</span>
+                <span><strong>${o.failed_logins_24h ?? 0}</strong>intentos fallidos en 24 h</span>
             </div>
             <div class="sec-split">
                 <section class="panel"><div class="panel__head"><h2>Cuota gratuita de la IA</h2></div>
@@ -147,12 +253,45 @@ export async function securityView(root, _params, signal) {
         }
     }
 
+    async function bitacora(mas = false) {
+        const slot = $('[data-slot="audit"]', root);
+        const params = new URLSearchParams({ limit: '50' });
+        if (grupo) params.set('group', grupo);
+        if (busqueda) params.set('q', busqueda);
+        if (mas && siguiente) params.set('before', String(siguiente));
+        try {
+            const r = await api.get(`/api/admin/audit?${params}`);
+            eventos = mas ? eventos.concat(r.events) : r.events;
+            siguiente = r.next_before;
+            setHtml(slot, tablaBitacora(eventos, !!siguiente));
+        } catch (err) {
+            setHtml(slot, empty({ icon: 'alert', title: 'No se pudo cargar la bitácora', text: err.message }));
+        }
+    }
+
+    on(root, 'click', '[data-tab]', (_e, b) => {
+        pestana = b.dataset.tab;
+        root.querySelectorAll('[data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t === b)));
+        root.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== pestana; });
+        if (pestana === 'audit' && !eventos.length) bitacora();
+    }, signal);
+    on(root, 'click', '[data-group]', (_e, b) => {
+        grupo = b.dataset.group;
+        root.querySelectorAll('[data-group]').forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+        bitacora();
+    }, signal);
+    $('[data-audit-q]', root).addEventListener('input', debounce((e) => { busqueda = e.target.value.trim(); bitacora(); }, 350), { signal });
+    on(root, 'click', '[data-action="audit-more"]', (_e, b) => { b.disabled = true; bitacora(true); }, signal);
+
     on(root, 'click', '[data-filter]', (_e, b) => {
         filtro = b.dataset.filter;
         root.querySelectorAll('[data-filter]').forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
         tabla();
     }, signal);
-    on(root, 'click', '[data-action="refresh"]', () => { resumen(); tabla(); }, signal);
+    on(root, 'click', '[data-action="refresh"]', () => {
+        if (pestana === 'audit') bitacora();
+        else { resumen(); tabla(); }
+    }, signal);
     on(root, 'click', '[data-scan]', (_e, tr) => {
         const s = escaneos.find((x) => x.id === Number(tr.dataset.scan));
         const drawer = openDrawer(detalle(s));
@@ -175,6 +314,6 @@ export async function securityView(root, _params, signal) {
         });
     }, signal);
 
-    await resumen();
+    await resumen(inicial);
     tabla();
 }

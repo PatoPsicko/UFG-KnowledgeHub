@@ -47,6 +47,7 @@ arrancar: no hace falta ningún editor de bases de datos.
 | `python wsgi.py` | Servidor para pruebas con 20+ personas a la vez. |
 | `python manage.py demo` | Crea un usuario de prueba con contraseña aleatoria. |
 | `python manage.py admin correo@ufg.edu.sv` | Da acceso al panel de Seguridad. |
+| `python manage.py reset-2fa correo@ufg.edu.sv` | Quita la verificación en dos pasos (celular perdido sin códigos de respaldo). |
 | `python manage.py ai --test "pregunta"` | Comprueba qué modelo de IA responde. |
 | `python manage.py scan archivo.pdf` | Pasa un archivo por las 3 barreras del vigilante. |
 | `python manage.py index --stats` | Estado del índice de búsqueda del asistente. |
@@ -103,10 +104,13 @@ hub/                    backend Flask
   models.py, schema.py  tablas SQLite y migración automática de columnas
   storage.py            archivos subidos: carpetas, límites, cuotas y limpieza
   mailer.py             correo de verificación (SMTP, apagado por defecto)
+  sessions.py           sesiones por dispositivo y renovación del token
+  twofactor.py          verificación en dos pasos (TOTP) y códigos de respaldo
+  audit.py              bitácora de seguridad
   errors.py             errores JSON uniformes
-  api/                  Blueprints: auth, library, social, chat, groups, notes,
-                        profile, realtime (pulso y notificaciones), assistant,
-                        admin, files (enlaces de descarga firmados)
+  api/                  Blueprints: auth, account (sesiones y dos pasos), library,
+                        social, chat, groups, notes, profile, realtime (pulso y
+                        notificaciones), assistant, admin, files (enlaces firmados)
   ai/                   router de modelos con cuotas, índice híbrido, prompt del
                         asistente e IA simulada para pruebas de carga
   security/             vigilante: estático + antivirus + revisión con IA
@@ -137,6 +141,11 @@ docs/                   documentación
   con letras y números, bloqueo de 15 minutos tras 5 intentos fallidos y mensajes
   que no revelan si una cuenta existe. Verificación por correo lista pero apagada
   hasta tener un SMTP.
+- Sesiones por dispositivo: el estudiante ve dónde tiene la cuenta abierta y puede
+  cerrar cualquier sesión; cambiar la contraseña cierra las demás. El token de acceso
+  dura 30 minutos y se renueva solo con una cookie HttpOnly.
+- Verificación en dos pasos con app de códigos (opcional para estudiantes,
+  obligatoria para entrar al panel de Seguridad) y bitácora de seguridad en el panel.
 - Descargas con enlaces firmados de 5 minutos (funcionan en el celular y en web views).
 - Límites de peticiones en el inicio de sesión, el registro, el chat y el asistente.
 - No subas `.env` ni `instance/` al repositorio.

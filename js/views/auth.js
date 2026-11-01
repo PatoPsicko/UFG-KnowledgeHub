@@ -3,7 +3,8 @@
  *
  * Sólo se aceptan correos institucionales (lo comprueba el servidor; aquí se
  * avisa antes de enviar). Los mensajes de error vienen del backend, que nunca
- * revela si un correo tiene cuenta.
+ * revela si un correo tiene cuenta. Si la cuenta tiene verificación en dos
+ * pasos, tras la contraseña se pide el código de la app.
  */
 
 import { api } from '../core/api.js';
@@ -36,6 +37,19 @@ function loginForm() {
         <div class="form-slot"></div>
         <button class="btn btn--primary btn--block" type="submit" style="margin-top:20px;height:44px">Entrar</button>
         <p class="auth__switch">¿Primera vez aquí? <button type="button" data-action="show-register">Crea tu cuenta</button></p>
+    </form>`;
+}
+
+function codeForm() {
+    return html`<form class="auth__form" id="code-form" novalidate>
+        <h2>Verificación en dos pasos</h2>
+        <p>Abre tu app de códigos (Google Authenticator, Microsoft Authenticator, Authy...) y escribe el número de UFG Knowledge Hub.</p>
+        <label class="field"><span class="field__label">Código de 6 dígitos</span>
+            <input class="input input--code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" placeholder="000000" required></label>
+        <p class="field__hint">¿No tienes el celular? Escribe uno de tus códigos de respaldo (por ejemplo ABCD-2345).</p>
+        <div class="form-slot"></div>
+        <button class="btn btn--primary btn--block" type="submit" style="margin-top:20px;height:44px">Verificar</button>
+        <p class="auth__switch"><button type="button" data-action="show-login">Volver al inicio de sesión</button></p>
     </form>`;
 }
 
@@ -91,6 +105,7 @@ export function renderAuth(root, { onLogin }) {
     </div>`);
 
     const main = $('#auth-main', root);
+    let reto = null;  // reto firmado entre la contraseña y el código
     api.get('/api/auth/policy').then((p) => Object.assign(politica, p)).catch(() => {});
 
     on(main, 'click', '[data-action="show-register"]', () => { setHtml(main, registerForm()); $('[name="name"]', main).focus(); }, signal);
@@ -114,6 +129,13 @@ export function renderAuth(root, { onLogin }) {
         setHtml(slot, '');
         boton.disabled = true;
         try {
+            if (form.id === 'code-form') {
+                const r = await api.post('/api/login/2fa', { challenge: reto, code: datos.code });
+                api.setToken(r.token);
+                controller.abort();
+                onLogin(r.user);
+                return;
+            }
             if (form.id === 'register-form') {
                 if (!dominioPermitido(datos.email)) {
                     throw new Error(`Usa tu correo institucional (${politica.domains_label}).`);
@@ -127,10 +149,21 @@ export function renderAuth(root, { onLogin }) {
                 }
             }
             const r = await api.post('/api/login', { email: datos.email, password: datos.password });
+            if (r.two_factor_required) {
+                reto = r.challenge;
+                setHtml(main, codeForm());
+                $('[name="code"]', main).focus();
+                return;
+            }
             api.setToken(r.token);
             controller.abort();
             onLogin(r.user);
         } catch (err) {
+            if (form.id === 'code-form' && ['challenge_expired', 'challenge_invalid'].includes(err.code)) {
+                setHtml(main, loginForm());
+                setHtml($('.form-slot', main), errorBox(err));
+                return;
+            }
             setHtml(slot, html`${errorBox(err)}${err.code === 'email_unverified'
                 ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="resend" style="margin-top:8px">Enviar el enlace otra vez</button>` : ''}`);
             boton.disabled = false;

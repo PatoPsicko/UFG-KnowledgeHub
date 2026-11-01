@@ -66,6 +66,14 @@ class User(db.Model):
     last_seen = db.Column(db.DateTime)
     # Último mensaje del chat global que el usuario vio (para contar no leídos).
     chat_last_read_id = db.Column(db.Integer, default=0)
+    # Verificación en dos pasos (TOTP, como Google Authenticator). El secreto se
+    # guarda al empezar la configuración y sólo cuenta cuando totp_enabled es True.
+    totp_secret = db.Column(db.String(64))
+    totp_enabled = db.Column(db.Boolean, default=False)
+    # Último intervalo de 30 s usado: el mismo código no sirve dos veces.
+    totp_last_step = db.Column(db.Integer)
+    # Huellas de los códigos de respaldo que quedan sin usar (JSON).
+    totp_recovery = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
     resources = db.relationship('Resource', backref='owner', lazy=True, cascade='all, delete-orphan')
@@ -114,6 +122,7 @@ class User(db.Model):
             'role': self.role or 'student',
             'is_admin': self.is_admin,
             'email_verified': self.email_verified is not False,
+            'two_factor_enabled': bool(self.totp_enabled),
             'preferences': self.prefs(),
             'created_at': iso_utc(self.created_at),
         }
@@ -370,3 +379,78 @@ class BlockedHash(db.Model):
     sha256 = db.Column(db.String(64), primary_key=True)
     reason = db.Column(db.String(300))
     created_at = db.Column(db.DateTime, default=db.func.now())
+
+
+class UserSession(db.Model):
+    """Una sesión abierta en un dispositivo (un celular, una compu, otro navegador).
+
+    El navegador guarda un token de acceso corto (JWT con el id de esta fila) y
+    un token de renovación largo en una cookie HttpOnly que JavaScript no puede
+    leer. Aquí sólo queda la huella SHA-256 del de renovación. Revocar la fila
+    cierra la sesión en ese dispositivo en la siguiente petición.
+    """
+    __tablename__ = 'user_session'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    # Huella anterior: si alguien la vuelve a usar después de renovar, es que
+    # la copiaron y se cierra la sesión.
+    previous_hash = db.Column(db.String(64), index=True)
+    rotated_at = db.Column(db.DateTime)
+    device = db.Column(db.String(80))
+    user_agent = db.Column(db.String(300))
+    ip = db.Column(db.String(64))
+    # Se abrió (o se confirmó después) con el código de verificación en dos pasos.
+    two_factor = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    last_seen_at = db.Column(db.DateTime, default=utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime)
+    revoked_reason = db.Column(db.String(40))
+
+    def to_dict(self, current_id: int | None = None) -> dict:
+        return {
+            'id': self.id,
+            'device': self.device or 'Navegador',
+            'ip': self.ip,
+            'two_factor': bool(self.two_factor),
+            'created_at': iso_utc(self.created_at),
+            'last_seen_at': iso_utc(self.last_seen_at),
+            'current': self.id == current_id,
+        }
+
+
+class AuditEvent(db.Model):
+    """Bitácora de seguridad: inicios de sesión, sesiones cerradas, cambios de
+    contraseña, verificación en dos pasos y decisiones del panel de Seguridad.
+
+    Guarda el correo además del id para que el registro siga siendo legible si
+    la cuenta se borra (y para los intentos con correos que no existen).
+    """
+    __tablename__ = 'audit_event'
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    user_id = db.Column(db.Integer, index=True)
+    email = db.Column(db.String(150))
+    action = db.Column(db.String(40), nullable=False, index=True)
+    target = db.Column(db.String(120))
+    ip = db.Column(db.String(64))
+    device = db.Column(db.String(80))
+    details = db.Column(db.Text)
+
+    def to_dict(self) -> dict:
+        try:
+            detalles = json.loads(self.details) if self.details else {}
+        except ValueError:
+            detalles = {}
+        return {
+            'id': self.id,
+            'created_at': iso_utc(self.created_at),
+            'user_id': self.user_id,
+            'email': self.email,
+            'action': self.action,
+            'target': self.target,
+            'ip': self.ip,
+            'device': self.device,
+            'details': detalles,
+        }

@@ -134,6 +134,65 @@ rechazado») y los administradores un aviso sólo de lo que quedó en cuarentena
   rol de administrador sólo se da a correos verificados. Mientras esté apagada,
   conviene crear primero las cuentas de `ADMIN_EMAILS`.
 
+## Sesiones, verificación en dos pasos y bitácora (Fase 3A)
+
+Código: `hub/sessions.py`, `hub/twofactor.py`, `hub/audit.py` y `hub/api/account.py`.
+Pruebas: `tests/test_sessions.py`.
+
+### Sesiones por dispositivo
+
+- Cada inicio de sesión crea una fila en `user_session` con el dispositivo
+  («Chrome en Android», «Safari en iPhone»...), la IP y la última actividad.
+- El navegador recibe un **token de acceso** (JWT) que dura `JWT_MINUTES` (30) y
+  lleva el id de la sesión, y un **token de renovación** en la cookie
+  `hub_refresh`: HttpOnly (JavaScript no la puede leer), `SameSite=Strict`,
+  limitada a `/api/auth` y `Secure` cuando se entra por HTTPS (también detrás de
+  Tailscale Funnel o Cloudflare). En la base sólo queda su huella SHA-256.
+- Cada petición comprueba que la sesión siga abierta. Cerrar una sesión (desde
+  **Mi perfil → Acceso y sesiones**, con «Cerrar sesión» o al cambiar la
+  contraseña) la invalida en la siguiente petición de ese dispositivo, incluidos
+  sus enlaces de descarga.
+- Cuando el token de acceso caduca, el navegador pide otro a `/api/auth/refresh`
+  y el token de renovación se cambia por uno nuevo. Si alguien usa un token de
+  renovación ya cambiado (una copia robada), la sesión se cierra y queda en la
+  bitácora como «Sesión cerrada por posible robo». Dos pestañas que renuevan a
+  la vez tienen 30 s de margen.
+- Una sesión se cierra sola tras `SESSION_IDLE_DAYS` (14) sin uso o a los
+  `SESSION_MAX_DAYS` (60) de abrirse. Si el navegador borra `localStorage` (web
+  views, modo privado), la cookie recupera la sesión al recargar.
+- Los tokens anteriores a esta fase (sin sesión) dejan de valer: hay que volver
+  a entrar una vez.
+
+### Verificación en dos pasos
+
+- Códigos TOTP de 6 dígitos (RFC 6238), compatibles con Google Authenticator,
+  Microsoft Authenticator, Authy o el llavero del iPhone. Implementado con la
+  biblioteca estándar; el QR lo dibuja `qrcode`.
+- Se activa en **Mi perfil → Acceso y sesiones**: contraseña → QR (o clave para
+  escribir a mano) → código. Entrega **8 códigos de respaldo** de un solo uso
+  (se guarda su huella HMAC, no el código).
+- Al entrar, tras la contraseña se pide el código. Entre los dos pasos viaja un
+  reto firmado que vale 5 minutos y deja de valer si cambia la contraseña. Cada
+  código sirve una sola vez y los fallos cuentan para el bloqueo de 15 minutos.
+- **Administradores** (`ADMIN_REQUIRE_2FA=1`): el panel de Seguridad no abre sin
+  la verificación activa, y una sesión abierta antes de activarla tiene que
+  confirmarse con un código. No pueden desactivarla; si un admin pierde el
+  celular y los códigos: `python manage.py reset-2fa correo`.
+- El secreto TOTP se guarda en la base sin cifrar (como en la mayoría de
+  proyectos sin un gestor de claves): protege la carpeta `instance/`.
+
+### Bitácora
+
+Pestaña **Bitácora** del panel de Seguridad, con filtros (intentos fallidos,
+entradas, sesiones, dos pasos, panel) y búsqueda por correo, IP o archivo. Se
+registra: inicios de sesión correctos y fallidos (también con correos que no
+existen), bloqueos, cierres de sesión, sesiones cerradas, cambios de contraseña,
+activación o uso de la verificación en dos pasos, posibles robos de sesión,
+cambios de rol y las decisiones de cuarentena (aprobar, rechazar, volver a
+revisar), con dispositivo e IP. El resumen del panel muestra los intentos
+fallidos de las últimas 24 h y las sesiones activas. Se guarda
+`AUDIT_RETENTION_DAYS` (180) días; la limpieza corre cada 6 h.
+
 ## Archivos en el servidor (Fase 2)
 
 - Carpetas por tipo: `uploads/library/`, `uploads/private/<usuario>/`,
@@ -155,7 +214,7 @@ rechazado») y los administradores un aviso sólo de lo que quedó en cuarentena
 
 ```bash
 python manage.py scan ruta\al\archivo.pdf      # las 3 barreras sobre un archivo
-python -m pytest tests/test_security.py tests/test_auth.py tests/test_storage.py
+python -m pytest tests/test_security.py tests/test_auth.py tests/test_storage.py tests/test_sessions.py
 ```
 
 Para la demostración en clase se puede subir el archivo de prueba EICAR

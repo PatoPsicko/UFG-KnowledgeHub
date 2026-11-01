@@ -42,9 +42,10 @@ def _download_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(current_app.config['JWT_SECRET_KEY'], salt='enlace-descarga')
 
 
-def make_download_token(user_id: int, path: str) -> str:
-    """Token para un enlace de descarga: sólo vale para `path`, por GET y unos minutos."""
-    return _download_serializer().dumps({'u': user_id, 'p': path})
+def make_download_token(user_id: int, path: str, session_id: int | None = None) -> str:
+    """Token para un enlace de descarga: sólo vale para `path`, por GET, unos minutos
+    y mientras siga abierta la sesión que lo pidió."""
+    return _download_serializer().dumps({'u': user_id, 'p': path, 's': session_id})
 
 
 def _download_link_user() -> bool:
@@ -61,31 +62,53 @@ def _download_link_user() -> bool:
     user = db.session.get(User, int(datos.get('u') or 0))
     if user is None:
         raise ApiError('Tu cuenta ya no existe.', 403, 'user_not_found')
+    from .sessions import check
+    try:
+        g.user_session = check(datos.get('s'), user.id)
+    except ApiError:
+        raise ApiError('Esa sesión se cerró. Vuelve a entrar y pulsa Descargar.', 403, 'link_expired')
     g.current_user = user
     return True
 
 
+def _authenticate() -> User:
+    """Token válido + sesión abierta (ver hub/sessions.py) + cuenta existente."""
+    if not _download_link_user():
+        verify_jwt_in_request()
+        from .sessions import load_current
+        load_current(current_user_id())
+    return current_user()
+
+
 def login_required(fn: Callable) -> Callable:
-    """Igual que @jwt_required() pero además carga el usuario.
+    """Igual que @jwt_required() pero además comprueba que la sesión siga
+    abierta y carga el usuario.
 
     En las rutas de archivos también se acepta un enlace firmado (?dl=...),
     ver hub/api/files.py.
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        if not _download_link_user():
-            verify_jwt_in_request()
-        current_user()
+        _authenticate()
         return fn(*args, **kwargs)
     return wrapper
 
 
 def admin_required(fn: Callable) -> Callable:
+    """Sólo administradores. Con ADMIN_REQUIRE_2FA, además la sesión tiene que
+    haberse abierto (o confirmado) con el código de verificación en dos pasos."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        verify_jwt_in_request()
-        if not current_user().is_admin:
+        user = _authenticate()
+        if not user.is_admin:
             raise ApiError('Esta sección es sólo para administradores.', 403, 'admin_only')
+        if current_app.config['ADMIN_REQUIRE_2FA']:
+            if not user.totp_enabled:
+                raise ApiError('Para entrar al panel de Seguridad activa la verificación en dos pasos.',
+                               403, 'two_factor_setup')
+            if not g.user_session.two_factor:
+                raise ApiError('Confirma con el código de tu app de verificación para entrar al panel.',
+                               403, 'two_factor_step_up')
         return fn(*args, **kwargs)
     return wrapper
 

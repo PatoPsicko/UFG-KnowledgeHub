@@ -17,6 +17,11 @@ avisar antes de enviar):
   «Correo o contraseña incorrectos» en ambos casos (con el mismo tiempo de
   respuesta, porque también se calcula un bcrypt cuando la cuenta no existe).
 * Verificación por correo opcional (EMAIL_VERIFICATION=1 y SMTP en .env).
+* Con verificación en dos pasos activa, la contraseña correcta no basta: se
+  devuelve un «reto» firmado de 5 minutos y la sesión se abre en
+  /api/login/2fa con el código de la app o uno de respaldo.
+* Cada inicio de sesión abre una sesión por dispositivo (hub/sessions.py) y
+  queda en la bitácora (hub/audit.py).
 """
 
 from __future__ import annotations
@@ -26,15 +31,15 @@ import unicodedata
 from datetime import timedelta
 
 from flask import Blueprint, current_app, jsonify, redirect, request
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import decode_token
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy.exc import IntegrityError
 
-from .. import mailer
+from .. import audit, mailer, sessions, twofactor
 from ..config import env_int
 from ..errors import ApiError
 from ..extensions import bcrypt, db
-from ..models import LoginThrottle, User, utcnow
+from ..models import LoginThrottle, User, UserSession, utcnow
 from ..utils import SlidingWindowLimiter, clean_text, client_ip, current_user, json_body, login_required
 
 bp = Blueprint('auth', __name__, url_prefix='/api')
@@ -60,6 +65,8 @@ CONTRASENAS_COMUNES = {
 }
 VERIFY_SALT = 'verificar-correo'
 VERIFY_MAX_AGE = 48 * 3600
+CHALLENGE_SALT = 'reto-dos-pasos'
+CHALLENGE_MAX_AGE = 300
 _hash_ficticio: str | None = None
 
 
@@ -119,6 +126,8 @@ def _sync_role(user: User) -> None:
     if (user.email.lower() in current_app.config['ADMIN_EMAILS'] and user.role != 'admin'
             and user.email_verified is not False):
         user.role = 'admin'
+        if user.id:
+            audit.record('role_granted', user=user, via='ADMIN_EMAILS')
 
 
 # --- Bloqueo por intentos fallidos -------------------------------------------
@@ -175,6 +184,34 @@ def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(current_app.config['JWT_SECRET_KEY'], salt=VERIFY_SALT)
 
 
+def _challenge() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(current_app.config['JWT_SECRET_KEY'], salt=CHALLENGE_SALT)
+
+
+def _start_session(user: User, *, two_factor: bool = False):
+    """Abre la sesión del dispositivo, la anota en la bitácora y entrega los tokens."""
+    sesion, renovacion = sessions.open_session(user, two_factor=two_factor)
+    audit.record('login_ok', user=user, target=f'session:{sesion.id}', two_factor=two_factor)
+    db.session.commit()
+    respuesta = jsonify({'message': 'Sesión iniciada', 'token': sessions.access_token(user, sesion),
+                         'user': user.private_dict()})
+    sessions.set_cookie(respuesta, renovacion)
+    return respuesta, 200
+
+
+def _check_limits(email: str) -> None:
+    ip = client_ip()
+    if not login_limiter.allow((ip, email)) or not login_ip_limiter.allow(ip):
+        raise ApiError('Demasiados intentos. Espera un minuto antes de volver a probar.', 429, 'rate_limited')
+    restante = _lock_remaining(email)
+    if restante:
+        audit.record('login_blocked', email=email)
+        db.session.commit()
+        minutos = max(1, round(restante / 60))
+        raise ApiError(f'Demasiados intentos fallidos con este correo. Vuelve a intentarlo en {minutos} min.',
+                       429, 'account_locked', {'retry_after': restante})
+
+
 def _send_verification(user: User) -> bool:
     token = _serializer().dumps({'uid': user.id, 'email': user.email})
     base = current_app.config['APP_PUBLIC_URL'] or request.host_url.rstrip('/')
@@ -220,6 +257,8 @@ def register():
     _sync_role(user)
     db.session.add(user)
     try:
+        db.session.flush()
+        audit.record('register', user=user)
         db.session.commit()
     except IntegrityError:  # dos registros simultáneos con el mismo correo
         db.session.rollback()
@@ -236,17 +275,12 @@ def login():
     password = data.get('password') if isinstance(data.get('password'), str) else ''
     if not email or not password:
         raise ApiError('Escribe tu correo y tu contraseña.', 400, 'missing_credentials')
-    ip = client_ip()
-    if not login_limiter.allow((ip, email)) or not login_ip_limiter.allow(ip):
-        raise ApiError('Demasiados intentos. Espera un minuto antes de volver a probar.', 429, 'rate_limited')
-    restante = _lock_remaining(email)
-    if restante:
-        minutos = max(1, round(restante / 60))
-        raise ApiError(f'Demasiados intentos fallidos con este correo. Vuelve a intentarlo en {minutos} min.',
-                       429, 'account_locked', {'retry_after': restante})
+    _check_limits(email)
 
     user = User.query.filter(db.func.lower(User.email) == email).first()
     if not _check_password(user, password):
+        audit.record('login_failed', user_id=user.id if user else None, email=email,
+                     reason='password' if user else 'unknown_email')
         _register_failure(email)
         raise ApiError('Correo o contraseña incorrectos.', 401, 'invalid_credentials')
 
@@ -256,9 +290,80 @@ def login():
         raise ApiError('Confirma tu correo antes de entrar: abre el enlace que te enviamos.', 403,
                        'email_unverified')
     _sync_role(user)
-    db.session.commit()
-    token = create_access_token(identity=str(user.id))
-    return jsonify({'message': 'Sesión iniciada', 'token': token, 'user': user.private_dict()}), 200
+    if user.totp_enabled:
+        db.session.commit()
+        # El reto lleva un trozo de la huella de la contraseña: si la cambian, deja de valer.
+        reto = _challenge().dumps({'u': user.id, 'p': user.password[-12:]})
+        return jsonify({'two_factor_required': True, 'challenge': reto,
+                        'message': 'Escribe el código de tu app de verificación.'}), 200
+    return _start_session(user)
+
+
+@bp.post('/login/2fa')
+def login_two_factor():
+    """Segundo paso del inicio de sesión: código de 6 dígitos o código de respaldo."""
+    data = json_body()
+    try:
+        datos = _challenge().loads(data.get('challenge') or '', max_age=CHALLENGE_MAX_AGE)
+    except SignatureExpired:
+        raise ApiError('Pasaron más de 5 minutos. Vuelve a escribir tu contraseña.', 401, 'challenge_expired')
+    except BadSignature:
+        raise ApiError('Vuelve a iniciar sesión.', 401, 'challenge_invalid')
+    user = db.session.get(User, int(datos.get('u') or 0))
+    if not user or not user.totp_enabled or user.password[-12:] != datos.get('p'):
+        raise ApiError('Vuelve a iniciar sesión.', 401, 'challenge_invalid')
+    _check_limits(user.email)
+    via = twofactor.check(user, data.get('code'))
+    if not via:
+        audit.record('login_2fa_failed', user=user)
+        _register_failure(user.email)
+        raise ApiError('El código no es correcto o ya se usó. Prueba con el que muestra ahora la app.',
+                       401, 'invalid_code')
+    _clear_failures(user.email)
+    if via == 'recovery':
+        audit.record('2fa_recovery_used', user=user, left=twofactor.recovery_left(user))
+    return _start_session(user, two_factor=True)
+
+
+@bp.post('/auth/refresh')
+def refresh():
+    """Token de acceso nuevo a partir de la cookie de renovación (y cookie nueva)."""
+    try:
+        sesion, user, nuevo = sessions.rotate(request.cookies.get(sessions.REFRESH_COOKIE))
+    except ApiError as err:
+        respuesta = jsonify({'message': err.message, 'code': err.code})
+        sessions.clear_cookie(respuesta)
+        return respuesta, 401
+    respuesta = jsonify({'token': sessions.access_token(user, sesion), 'user': user.private_dict()})
+    if nuevo:
+        sessions.set_cookie(respuesta, nuevo)
+    return respuesta, 200
+
+
+def _session_from_header() -> UserSession | None:
+    """Sesión del token de acceso aunque haya caducado (para poder cerrarla)."""
+    cabecera = request.headers.get('Authorization', '')
+    if not cabecera.startswith('Bearer '):
+        return None
+    try:
+        datos = decode_token(cabecera[7:], allow_expired=True)
+    except Exception:  # token mal formado o de otra clave: no hay nada que cerrar
+        return None
+    sesion = db.session.get(UserSession, int(datos.get('sid') or 0))
+    return sesion if sesion and str(sesion.user_id) == str(datos.get('sub')) else None
+
+
+@bp.post('/auth/logout')
+def logout():
+    """Cierra la sesión de este dispositivo. Funciona aunque el token de acceso haya caducado."""
+    sesion = sessions.find_by_refresh(request.cookies.get(sessions.REFRESH_COOKIE)) or _session_from_header()
+    if sesion is not None and sesion.revoked_at is None:
+        sessions.revoke(sesion, 'logout')
+        audit.record('logout', user=db.session.get(User, sesion.user_id), target=f'session:{sesion.id}')
+        db.session.commit()
+    respuesta = jsonify({'message': 'Sesión cerrada.'})
+    sessions.clear_cookie(respuesta)
+    return respuesta, 200
 
 
 @bp.get('/verify-email')
@@ -273,6 +378,8 @@ def verify_email():
     user = db.session.get(User, int(datos.get('uid') or 0))
     if not user or user.email != datos.get('email'):
         return redirect('/?verificacion=invalida')
+    if not user.email_verified:
+        audit.record('email_verified', user=user)
     user.email_verified = True
     _sync_role(user)
     db.session.commit()

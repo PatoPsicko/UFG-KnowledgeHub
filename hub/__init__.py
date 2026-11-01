@@ -59,9 +59,10 @@ def create_app(overrides: dict | None = None) -> Flask:
     register_error_handlers(app)
     _security_headers(app)
 
-    from .api import (admin, assistant, auth, chat, files, frontend, groups, library, notes, profile, realtime,
-                      social)
-    for modulo in (auth, library, social, chat, groups, notes, profile, realtime, assistant, admin, files, frontend):
+    from .api import (account, admin, assistant, auth, chat, files, frontend, groups, library, notes, profile,
+                      realtime, social)
+    for modulo in (auth, account, library, social, chat, groups, notes, profile, realtime, assistant, admin, files,
+                   frontend):
         app.register_blueprint(modulo.bp)
 
     from . import storage
@@ -119,16 +120,19 @@ def start_background(app: Flask) -> None:
 
     threading.Thread(target=vigilar_embeddings, name='vigilar-embeddings', daemon=True).start()
 
-    # Limpieza de archivos huérfanos y subidas a medias: al arrancar y cada 6 h.
-    from . import storage
+    # Limpieza de archivos huérfanos y subidas a medias, sesiones viejas y
+    # bitácora más antigua que AUDIT_RETENTION_DAYS: al arrancar y cada 6 h.
+    from . import audit, sessions, storage
 
     def limpiar_archivos():
         while True:
-            try:
-                with app.app_context():
-                    storage.cleanup()
-            except Exception as exc:
-                app.logger.warning('Limpieza de archivos: %s', exc)
+            for nombre, tarea in (('archivos', storage.cleanup), ('sesiones', sessions.purge),
+                                  ('bitácora', audit.purge)):
+                try:
+                    with app.app_context():
+                        tarea()
+                except Exception as exc:
+                    app.logger.warning('Limpieza de %s: %s', nombre, exc)
             time.sleep(6 * 3600)
 
     threading.Thread(target=limpiar_archivos, name='limpiar-archivos', daemon=True).start()

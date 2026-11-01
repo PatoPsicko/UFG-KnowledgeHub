@@ -56,6 +56,12 @@ function navHtml(user, pulse, activePath) {
 
 let shellController = null;
 
+/** Al cerrar sesión: suelta los escuchadores del marco (tema, usuario, pulso) antes de pintar el acceso. */
+export function destroyShell() {
+    shellController?.abort();
+    shellController = null;
+}
+
 export function renderShell(root, { onLogout }) {
     // Al volver a entrar tras cerrar sesión se descartan los escuchadores anteriores.
     shellController?.abort();

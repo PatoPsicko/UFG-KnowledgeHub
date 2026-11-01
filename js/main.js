@@ -21,7 +21,7 @@ import { libraryView } from './views/library.js';
 import { notesView } from './views/notes.js';
 import { profileView } from './views/profile.js';
 import { securityView } from './views/security.js';
-import { renderShell, setActiveNav } from './views/shell.js';
+import { destroyShell, renderShell, setActiveNav } from './views/shell.js';
 
 const root = document.getElementById('app-root');
 
@@ -109,7 +109,8 @@ function entrar(user) {
 
 function salir(motivo) {
     pulse.stop();
-    api.clearToken();
+    api.logout();
+    destroyShell();
     store.setUser(null);
     if (motivo) toast(motivo, 'info');
     location.hash = '';
@@ -120,7 +121,9 @@ api.setUnauthorizedHandler((mensaje) => salir(mensaje || 'Tu sesión expiró. In
 
 async function boot() {
     avisoVerificacion();
-    if (!api.hasToken()) {
+    // Sin token guardado (web views que borran localStorage, modo privado) la
+    // cookie de renovación todavía puede abrir la sesión.
+    if (!api.hasToken() && !await api.refresh()) {
         renderAuth(root, { onLogin: entrar });
         return hideSplash();
     }

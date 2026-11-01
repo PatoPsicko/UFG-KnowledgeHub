@@ -20,7 +20,7 @@ os.environ['SCAN_ANTIVIRUS'] = 'off'
 
 from hub import create_app  # noqa: E402
 from hub.ai import assistant, llm  # noqa: E402
-from hub.api import auth, chat  # noqa: E402
+from hub.api import account, auth, chat  # noqa: E402
 
 PASSWORD = 'ClaveSegura123'
 
@@ -104,7 +104,7 @@ def fake_router():
 @pytest.fixture()
 def app(tmp_path, fake_router):
     for limiter in (auth.login_limiter, auth.login_ip_limiter, auth.register_limiter, auth.resend_limiter,
-                    chat.flood_limiter, assistant.limiter):
+                    chat.flood_limiter, assistant.limiter, account.code_limiter):
         limiter.reset()
     assistant.cache_clear()
     app = create_app({
@@ -117,6 +117,8 @@ def app(tmp_path, fake_router):
         # Valores fijos: las pruebas no dependen de lo que haya en .env.
         'ALLOWED_EMAIL_DOMAINS': ['ufg.edu.sv'],
         'EMAIL_VERIFICATION': False,
+        # Las pruebas del panel no configuran la app de códigos; test_sessions.py la prueba aparte.
+        'ADMIN_REQUIRE_2FA': False,
         'SCAN_REQUIRE_AI': True,
         'MAX_UPLOAD_MB': 25,
         'USER_QUOTA_MB': 300,

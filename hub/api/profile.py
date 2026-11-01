@@ -8,6 +8,7 @@ import re
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
+from .. import audit, sessions
 from ..catalog import valid_career
 from ..errors import ApiError
 from ..extensions import bcrypt, db
@@ -105,8 +106,11 @@ def change_password():
     nueva = data.get('new_password') if isinstance(data.get('new_password'), str) else ''
     validate_password(nueva, user.email)
     user.password = bcrypt.generate_password_hash(nueva).decode('utf-8')
+    # Quien tuviera la contraseña vieja pierde también las sesiones que abrió con ella.
+    cerradas = sessions.revoke_all(user.id, 'password_changed', except_id=sessions.current_id())
+    audit.record('password_changed', user=user, closed=cerradas)
     db.session.commit()
-    return jsonify({'message': 'Contraseña actualizada.'}), 200
+    return jsonify({'message': 'Contraseña actualizada.', 'closed_sessions': cerradas}), 200
 
 
 @bp.get('/profile/preferences')

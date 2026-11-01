@@ -4,6 +4,7 @@
     python manage.py db --reset            borra la base y la recrea vacía (pide confirmación)
     python manage.py demo                  crea un usuario de prueba con contraseña aleatoria
     python manage.py admin correo@ufg.edu.sv   da rol de administrador a una cuenta
+    python manage.py reset-2fa correo@ufg.edu.sv  quita la verificación en dos pasos (celular perdido)
     python manage.py users                 lista las cuentas
     python manage.py ai                    estado de los proveedores de IA
     python manage.py ai --test "pregunta"  prueba el router con una pregunta
@@ -70,6 +71,7 @@ def cmd_demo(_args) -> None:
 
 
 def cmd_admin(args) -> None:
+    from hub import audit
     from hub.extensions import db
     from hub.models import User
     app = _app()
@@ -78,8 +80,27 @@ def cmd_admin(args) -> None:
         if not u:
             sys.exit(f'No existe ninguna cuenta con el correo {args.email}.')
         u.role = 'student' if args.remove else 'admin'
+        audit.record('role_removed' if args.remove else 'role_granted', user=u, via='manage.py')
         db.session.commit()
         print(f'{u.name} ({u.email}) ahora tiene rol: {u.role}')
+
+
+def cmd_reset_2fa(args) -> None:
+    """Quita la verificación en dos pasos (celular perdido y sin códigos de respaldo)."""
+    from hub import audit, sessions, twofactor
+    from hub.extensions import db
+    from hub.models import User
+    app = _app()
+    with app.app_context():
+        u = User.query.filter(db.func.lower(User.email) == args.email.lower()).first()
+        if not u:
+            sys.exit(f'No existe ninguna cuenta con el correo {args.email}.')
+        twofactor.disable(u)
+        cerradas = sessions.revoke_all(u.id, '2fa_reset')
+        audit.record('2fa_reset', user=u, via='manage.py', closed=cerradas)
+        db.session.commit()
+        print(f'Verificación en dos pasos quitada a {u.email}; se cerraron {cerradas} sesiones. '
+              'Al entrar tendrá que activarla de nuevo.')
 
 
 def cmd_users(_args) -> None:
@@ -175,6 +196,9 @@ def main() -> None:
     p.add_argument('email')
     p.add_argument('--remove', action='store_true', help='Quita el rol de administrador')
     p.set_defaults(func=cmd_admin)
+    p = sub.add_parser('reset-2fa', help='Quita la verificación en dos pasos de una cuenta')
+    p.add_argument('email')
+    p.set_defaults(func=cmd_reset_2fa)
     sub.add_parser('users', help='Lista las cuentas').set_defaults(func=cmd_users)
     p = sub.add_parser('ai', help='Estado y prueba de los modelos de IA')
     p.add_argument('--test', help='Pregunta de prueba')

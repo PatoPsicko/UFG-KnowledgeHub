@@ -23,6 +23,7 @@ from flask import Blueprint, jsonify
 
 from .. import storage
 from ..errors import ApiError
+from ..sessions import current_id as current_session_id
 from ..utils import current_user, json_body, login_required, make_download_token
 
 bp = Blueprint('files', __name__, url_prefix='/api/files')
@@ -41,7 +42,7 @@ def link():
         raise ApiError('Esa ruta no entrega archivos.', 400, 'invalid_path')
     if consulta and not re.fullmatch(r'(download|inline)=1', consulta):
         raise ApiError('Parámetros no válidos.', 400, 'invalid_path')
-    token = make_download_token(current_user().id, base)
+    token = make_download_token(current_user().id, base, current_session_id())
     url = f'{base}?{consulta + "&" if consulta else ""}dl={token}'
     return jsonify({'url': url, 'expires_in': LINK_SECONDS}), 200
 

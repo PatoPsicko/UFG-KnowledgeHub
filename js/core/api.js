@@ -4,6 +4,11 @@
  * Todas las respuestas de error del backend tienen la forma
  * { message, code?, details? }; aquí se convierten en ApiError para que las
  * vistas muestren el mensaje tal cual.
+ *
+ * Sesión: el token de acceso dura unos 30 minutos. Cuando está por caducar (o
+ * el servidor responde 401) se pide otro a /api/auth/refresh, que usa la
+ * cookie HttpOnly de renovación: el estudiante no nota nada mientras la sesión
+ * siga abierta en ese dispositivo.
  */
 
 const TOKEN_KEY = 'token';
@@ -26,6 +31,48 @@ function token() {
     try { return localStorage.getItem(TOKEN_KEY) || tokenEnMemoria; } catch { return tokenEnMemoria; }
 }
 
+// Rutas que no deben intentar renovar la sesión (o se entraría en un bucle).
+const SIN_RENOVAR = new Set(['/api/login', '/api/login/2fa', '/api/register', '/api/auth/refresh', '/api/auth/logout']);
+
+function guardar(t) {
+    tokenEnMemoria = t;
+    try { localStorage.setItem(TOKEN_KEY, t); } catch { /* modo privado */ }
+}
+
+/** Segundos que le quedan al token de acceso (Infinity si no se puede leer). */
+function restante(t) {
+    try {
+        const datos = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return datos.exp - Date.now() / 1000;
+    } catch { return Infinity; }
+}
+
+// Una sola renovación a la vez aunque varias peticiones caduquen juntas.
+let renovando = null;
+function renovar() {
+    renovando ??= fetch('/api/auth/refresh', { method: 'POST', headers: { 'X-Requested-With': 'fetch' } })
+        .then(async (r) => {
+            if (!r.ok) return false;
+            guardar((await r.json()).token);
+            return true;
+        })
+        .catch(() => false)
+        .finally(() => { renovando = null; });
+    return renovando;
+}
+
+/** fetch con el token; si caducó, renueva una vez y repite la petición. */
+async function fetchAuth(path, init = {}) {
+    const ruta = path.split('?')[0];
+    const renovable = !SIN_RENOVAR.has(ruta);
+    const t = token();
+    if (renovable && t && restante(t) < 30) await renovar();
+    const enviar = () => fetch(path, { ...init, headers: headers(init.headers) });
+    let response = await enviar();
+    if (response.status === 401 && renovable && await renovar()) response = await enviar();
+    return response;
+}
+
 function headers(extra = {}) {
     const h = { ...extra };
     const t = token();
@@ -41,7 +88,7 @@ async function parse(response) {
 }
 
 async function request(path, { method = 'GET', body, form } = {}) {
-    const options = { method, headers: headers() };
+    const options = { method, headers: {} };
     if (form) {
         options.body = form;
     } else if (body !== undefined) {
@@ -50,13 +97,13 @@ async function request(path, { method = 'GET', body, form } = {}) {
     }
     let response;
     try {
-        response = await fetch(path, options);
+        response = await fetchAuth(path, options);
     } catch {
         throw new ApiError('No hay conexión con el servidor. Revisa tu internet o que el servidor esté encendido.', 0, 'network');
     }
     const data = await parse(response);
     if (!response.ok) {
-        if (response.status === 401 && token()) onUnauthorized(data.message);
+        if (response.status === 401 && token() && !SIN_RENOVAR.has(path)) onUnauthorized(data.message);
         throw new ApiError(data.message || `Error ${response.status}`, response.status, data.code, data.details);
     }
     return data;
@@ -66,8 +113,16 @@ export const api = {
     ApiError,
     setUnauthorizedHandler(fn) { onUnauthorized = fn; },
     hasToken: () => !!token(),
-    setToken(t) { tokenEnMemoria = t; try { localStorage.setItem(TOKEN_KEY, t); } catch { /* modo privado */ } },
+    setToken: guardar,
     clearToken() { tokenEnMemoria = null; try { localStorage.removeItem(TOKEN_KEY); } catch { /* modo privado */ } },
+    /** Recupera la sesión con la cookie de renovación (p. ej. si el navegador borró localStorage). */
+    refresh: renovar,
+    /** Cierra la sesión de este dispositivo en el servidor y olvida el token. */
+    logout() {
+        const h = headers();
+        this.clearToken();
+        return fetch('/api/auth/logout', { method: 'POST', headers: h, keepalive: true }).catch(() => {});
+    },
     authHeaders: () => headers(),
 
     get: (path) => request(path),
@@ -80,7 +135,7 @@ export const api = {
     async blob(path) {
         let response;
         try {
-            response = await fetch(path, { headers: headers() });
+            response = await fetchAuth(path);
         } catch {
             throw new ApiError('No hay conexión con el servidor.', 0, 'network');
         }
@@ -114,9 +169,9 @@ export const api = {
 
     /** POST con respuesta NDJSON (streaming del asistente). */
     async stream(path, body, onEvent, signal) {
-        const response = await fetch(path, {
+        const response = await fetchAuth(path, {
             method: 'POST',
-            headers: headers({ 'Content-Type': 'application/json' }),
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal,
         });
