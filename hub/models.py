@@ -58,6 +58,9 @@ class User(db.Model):
     profile_picture = db.Column(db.String(300))
     profile_color = db.Column(db.String(7), default='#0A6CC2')
     role = db.Column(db.String(20), default='student')  # student | admin
+    # Subidas suspendidas (por un administrador o por acumular rechazos).
+    uploads_blocked_until = db.Column(db.DateTime)
+    uploads_block_reason = db.Column(db.String(300))
     # True para las cuentas anteriores a la verificación por correo; las nuevas
     # empiezan en False sólo si EMAIL_VERIFICATION está activo.
     email_verified = db.Column(db.Boolean, default=True)
@@ -327,6 +330,9 @@ class FileScan(db.Model):
     antivirus_report = db.Column(db.Text)  # JSON
     ai_report = db.Column(db.Text)  # JSON
     reviewed_by = db.Column(db.Integer)
+    reviewed_at = db.Column(db.DateTime)
+    # Nota que el administrador escribe al decidir; también la recibe el estudiante.
+    admin_note = db.Column(db.String(500))
     # Reintentos de la revisión con IA cuando no hubo cuota o red.
     ai_attempts = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=db.func.now())
@@ -357,6 +363,8 @@ class FileScan(db.Model):
             'ai': carga(self.ai_report),
             'ai_attempts': self.ai_attempts or 0,
             'reviewed_by': self.reviewed_by,
+            'reviewed_at': iso_utc(self.reviewed_at),
+            'admin_note': self.admin_note,
             'created_at': iso_utc(self.created_at),
             'finished_at': iso_utc(self.finished_at),
         }
@@ -378,7 +386,13 @@ class BlockedHash(db.Model):
     """Huellas SHA-256 de archivos bloqueados: no se pueden volver a subir."""
     sha256 = db.Column(db.String(64), primary_key=True)
     reason = db.Column(db.String(300))
+    original_name = db.Column(db.String(300))
+    created_by = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=db.func.now())
+
+    def to_dict(self) -> dict:
+        return {'sha256': self.sha256, 'reason': self.reason, 'original_name': self.original_name,
+                'created_by': self.created_by, 'created_at': iso_utc(self.created_at)}
 
 
 class UserSession(db.Model):

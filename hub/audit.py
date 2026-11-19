@@ -10,7 +10,8 @@ Acciones que se registran:
     session_revoked, sessions_revoked_others, token_reuse, password_changed
     register, email_verified
     2fa_enabled, 2fa_disabled, 2fa_step_up, 2fa_recovery_used, 2fa_recovery_regenerated, 2fa_reset
-    scan_approved, scan_rejected, scan_rescan, role_granted, role_removed
+    scan_approved, scan_rejected, scan_rescan, scan_export, hash_unblocked, role_granted, role_removed
+    uploads_suspended, uploads_restored, uploads_auto_suspended
 """
 
 from __future__ import annotations
@@ -30,12 +31,16 @@ GROUPS = {
     'sessions': ('session_revoked', 'sessions_revoked_others', 'password_changed', 'token_reuse'),
     '2fa': ('2fa_enabled', '2fa_disabled', '2fa_step_up', '2fa_recovery_used', '2fa_recovery_regenerated',
             '2fa_reset', 'login_2fa_failed'),
-    'admin': ('scan_approved', 'scan_rejected', 'scan_rescan', 'role_granted', 'role_removed', '2fa_reset'),
+    'admin': ('scan_approved', 'scan_rejected', 'scan_rescan', 'scan_export', 'hash_unblocked', 'role_granted',
+              'role_removed', '2fa_reset', 'uploads_suspended', 'uploads_restored', 'uploads_auto_suspended'),
+    'files': ('scan_approved', 'scan_rejected', 'scan_rescan', 'scan_export', 'hash_unblocked',
+              'uploads_suspended', 'uploads_restored', 'uploads_auto_suspended'),
 }
 
 
 def record(action: str, *, user: User | None = None, user_id: int | None = None, email: str | None = None,
            target: str | None = None, **details) -> AuditEvent:
+    details = {k: v for k, v in details.items() if v is not None}
     ip = device = None
     if has_request_context():
         from .sessions import device_label

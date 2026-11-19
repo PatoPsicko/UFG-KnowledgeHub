@@ -27,6 +27,7 @@ const NOTIF_ICON = {
     group_invite: ['users', ''], group_task: ['tasks', ''], group_owner: ['crown', 'ok'],
     group_deleted: ['users', 'warn'], group_removed: ['users', 'warn'],
     scan_result: ['shield', ''], security_alert: ['shield', 'bad'],
+    uploads_suspended: ['lock', 'bad'], uploads_restored: ['check', 'ok'],
 };
 
 function notifTarget(n) {
@@ -39,7 +40,9 @@ function notifTarget(n) {
     case 'group_owner': return n.related_id ? `/grupos/${n.related_id}` : '/grupos';
     case 'group_deleted':
     case 'group_removed': return '/grupos';
-    case 'scan_result': return '/biblioteca?scope=mine';
+    case 'scan_result':
+    case 'uploads_suspended':
+    case 'uploads_restored': return '/biblioteca?scope=mine';
     case 'security_alert': return '/seguridad';
     default: return null;
     }

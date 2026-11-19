@@ -29,6 +29,7 @@ más los ve, así que no hace falta gastar cuota de IA en ellos.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 import logging
 import os
 import queue
@@ -36,6 +37,7 @@ import threading
 from dataclasses import dataclass
 
 from flask import Flask, current_app
+from sqlalchemy import or_
 
 from ..ai import specs
 from ..config import env_list
@@ -66,8 +68,22 @@ class UploadCheck:
     initial_status: str
 
 
+def uploads_blocked(user: User | None) -> bool:
+    return bool(user and user.uploads_blocked_until and user.uploads_blocked_until > utcnow())
+
+
 def check_upload(path: str, original_name: str, kind: str, user_id: int) -> UploadCheck:
     """Barrera 1. Si el archivo se rechaza, lo borra, lo registra y lanza ApiError 422."""
+    usuario = db.session.get(User, user_id)
+    if uploads_blocked(usuario):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        hasta = usuario.uploads_blocked_until.strftime('%d/%m/%Y %H:%M')
+        raise ApiError(f'Tus subidas están suspendidas hasta el {hasta} (UTC). '
+                       f'Motivo: {usuario.uploads_block_reason or "archivos rechazados por seguridad"}.',
+                       403, 'uploads_suspended')
     report = static.analyze(path, original_name)
     vetado = db.session.get(BlockedHash, report.sha256)
     if vetado:
@@ -268,6 +284,8 @@ def _run(trabajo: dict) -> None:
 
     _apply(scan, objetivo, estado, resumen[:500], legacy=trabajo.get('legacy', False),
            malware=av.get('verdict') == 'infected')
+    if av.get('verdict') == 'infected':
+        _maybe_auto_suspend(scan.user_id)
 
 
 def _apply(scan: FileScan, objetivo, estado: str, resumen: str, *, legacy: bool = False,
@@ -290,7 +308,8 @@ def _apply(scan: FileScan, objetivo, estado: str, resumen: str, *, legacy: bool 
         if scan.kind != 'avatar':
             delete_upload(scan.kind, scan.stored_name, _scope(scan))
         if scan.sha256 and not db.session.get(BlockedHash, scan.sha256):
-            db.session.add(BlockedHash(sha256=scan.sha256, reason=resumen[:300]))
+            db.session.add(BlockedHash(sha256=scan.sha256, reason=resumen[:300], original_name=nombre[:300],
+                                       created_by=by_admin))
 
     if scan.user_id and not (legacy and estado == SCAN_CLEAN):
         if estado == SCAN_CLEAN and scan.kind in ('public', 'group'):
@@ -331,18 +350,67 @@ def _reindex(kind: str, objetivo) -> None:
 
 
 # --- Acciones del administrador --------------------------------------------------
-def admin_decide(scan: FileScan, decision: str, admin_id: int) -> None:
+UPLOAD_STRIKES = int(os.environ.get('UPLOAD_STRIKES') or 3)
+UPLOAD_STRIKE_DAYS = int(os.environ.get('UPLOAD_STRIKE_DAYS') or 30)
+UPLOAD_BLOCK_DAYS = int(os.environ.get('UPLOAD_BLOCK_DAYS') or 7)
+
+
+def strikes(user_id: int) -> int:
+    """Archivos rechazados (por un admin o por malware) en los últimos UPLOAD_STRIKE_DAYS días."""
+    desde = utcnow() - timedelta(days=UPLOAD_STRIKE_DAYS)
+    return FileScan.query.filter(FileScan.user_id == user_id, FileScan.status == SCAN_BLOCKED,
+                                 FileScan.created_at >= desde,
+                                 or_(FileScan.reviewed_by.isnot(None),
+                                     FileScan.antivirus_report.like('%"infected"%'))).count()
+
+
+def suspend_uploads(user: User, days: int, reason: str) -> None:
+    user.uploads_blocked_until = utcnow() + timedelta(days=days)
+    user.uploads_block_reason = reason[:300]
+    notify(user.id, 'uploads_suspended', 'Subidas suspendidas',
+           f'No podrás subir archivos durante {days} días. Motivo: {reason}')
+
+
+def lift_suspension(user: User) -> None:
+    user.uploads_blocked_until = None
+    user.uploads_block_reason = None
+    notify(user.id, 'uploads_restored', 'Subidas reactivadas', 'Ya puedes volver a subir archivos.')
+
+
+def _maybe_auto_suspend(user_id: int | None) -> bool:
+    """Tras UPLOAD_STRIKES rechazos en el periodo, suspende las subidas UPLOAD_BLOCK_DAYS días."""
+    if not user_id or UPLOAD_STRIKES <= 0:
+        return False
+    usuario = db.session.get(User, user_id)
+    if usuario is None or usuario.is_admin or uploads_blocked(usuario):
+        return False
+    if strikes(user_id) >= UPLOAD_STRIKES:
+        suspend_uploads(usuario, UPLOAD_BLOCK_DAYS,
+                        f'{UPLOAD_STRIKES} archivos rechazados por seguridad en {UPLOAD_STRIKE_DAYS} días')
+        db.session.commit()
+        return True
+    return False
+
+
+def admin_decide(scan: FileScan, decision: str, admin_id: int, note: str = '') -> bool:
+    """Aplica la decisión. Devuelve True si el rechazo dejó al estudiante suspendido."""
     objetivo = _target(scan)
     if objetivo is None:
         raise ApiError('El recurso de este escaneo ya no existe.', 404)
+    note = (note or '').strip()[:500]
     if decision == 'approve':
         if not os.path.exists(_file_path(scan)):
             raise ApiError('El archivo ya no está en el servidor; no se puede aprobar.', 409)
-        _apply(scan, objetivo, SCAN_CLEAN, 'Aprobado por un administrador.', by_admin=admin_id)
-    elif decision in ('block', 'reject'):
-        _apply(scan, objetivo, SCAN_BLOCKED, 'Rechazado por un administrador.', by_admin=admin_id)
-    else:
-        raise ApiError('Decisión no válida (approve | reject).', 400)
+        scan.admin_note, scan.reviewed_at = note or None, utcnow()
+        _apply(scan, objetivo, SCAN_CLEAN, 'Aprobado por un administrador.' + (f' {note}' if note else ''),
+               by_admin=admin_id)
+        return False
+    if decision in ('block', 'reject'):
+        scan.admin_note, scan.reviewed_at = note or None, utcnow()
+        _apply(scan, objetivo, SCAN_BLOCKED, 'Rechazado por un administrador' + (f': {note}' if note else '.'),
+               by_admin=admin_id)
+        return _maybe_auto_suspend(scan.user_id)
+    raise ApiError('Decisión no válida (approve | reject).', 400)
 
 
 def awaiting_decision(scan: FileScan) -> bool:
