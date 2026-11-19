@@ -183,8 +183,43 @@ function politica(o) {
         </div></section>
         <section class="panel"><div class="panel__head"><h2>Archivos en el servidor</h2></div><div class="panel__body">${disco(o.storage)}</div></section>
     </div>
+    <section class="panel" style="margin-top:16px"><div class="panel__head"><h2>Respaldos</h2>
+            <button class="btn btn--secondary btn--sm" data-action="backup">${icon('download')}Crear respaldo ahora</button></div>
+        <div class="panel__body">${respaldos(o.backups)}</div></section>
     <section class="panel" style="margin-top:16px"><div class="panel__head"><h2>Cuota gratuita de la IA</h2></div>
         <div class="panel__body">${cuotas(o.ai?.quotas)}</div></section>`;
+}
+
+function respaldos(lista = []) {
+    const info = html`<p class="field__hint" style="margin-top:10px">Se hace uno solo cada día con el servidor encendido y se guardan los 7 más
+        recientes en instance/backups (base de datos y archivos, sin el .env). Para restaurar: apaga el servidor y ejecuta
+        <code>python manage.py restore instance/backups/respaldo_....zip</code>.</p>`;
+    if (!lista.length) return html`<p class="muted" style="font-size:14px">Todavía no hay respaldos.</p>${info}`;
+    return html`<ul class="backups">${lista.map((b) => html`<li>${icon('folder')}<span>${b.name}</span>
+        <span class="muted">${fileSize(b.bytes)}</span><span class="muted" title="${longDate(b.created_at)}">${timeAgo(b.created_at)}</span></li>`)}</ul>${info}`;
+}
+
+/* --- Reportes de estudiantes --------------------------------------------------------- */
+
+function tarjetaReporte(d) {
+    const doc = d.document;
+    return html`<article class="panel report-card" data-report-kind="${d.kind}" data-report-id="${d.resource_id}">
+        <div class="report-card__head">
+            <div style="min-width:0;flex:1"><h3>${doc.title}</h3>
+                <p class="muted">${d.kind === 'group' ? `Grupo ${doc.group || ''}` : 'Biblioteca'}${doc.owner ? `, subido por ${doc.owner.name}` : ''}${doc.filename ? `, ${doc.filename}` : ''}</p></div>
+            <span class="report-card__count">${d.count} ${d.count === 1 ? 'reporte' : 'reportes'}</span>
+        </div>
+        <div class="chips chips--static">${d.reasons.map((m) => html`<span class="tag">${m.label} (${m.count})</span>`)}
+            ${doc.scan_status === 'review' ? html`<span class="status status--review">${icon('alert')}Oculto mientras se revisa</span>` : ''}</div>
+        ${d.reports.some((r) => r.comment) ? html`<ul class="report-card__comments">${d.reports.filter((r) => r.comment).map((r) => html`
+            <li><strong>${r.reporter?.name || 'Estudiante'}:</strong> ${r.comment} <span class="muted">${timeAgo(r.created_at)}</span></li>`)}</ul>` : ''}
+        ${doc.exists ? html`<div class="report-card__actions">
+            <input class="input" data-report-note maxlength="300" placeholder="Nota (opcional): se guarda en la bitácora y la recibe quien lo subió si se elimina">
+            <button class="btn btn--secondary btn--sm" data-report-action="dismiss">${icon('check')}Mantener publicado</button>
+            <button class="btn btn--secondary btn--sm" data-report-action="hide">${icon('eye')}Ocultar y revisar</button>
+            <button class="btn btn--danger btn--sm" data-report-action="remove">${icon('trash')}Eliminar</button>
+        </div>` : html`<p class="muted" style="font-size:14px">El documento ya no existe. <button class="btn btn--ghost btn--sm" data-report-action="dismiss">Cerrar reportes</button></p>`}
+    </article>`;
 }
 
 /* --- Bitácora ----------------------------------------------------------------------- */
@@ -216,11 +251,17 @@ const ACCIONES = {
     uploads_suspended: ['Suspendió las subidas de un estudiante', 'warn'],
     uploads_restored: ['Reactivó las subidas de un estudiante', ''],
     uploads_auto_suspended: ['Suspensión automática por rechazos', 'warn'],
+    report_dismiss: ['Descartó reportes de un documento', ''],
+    report_hide: ['Ocultó un documento reportado', 'warn'],
+    report_remove: ['Eliminó un documento reportado', 'warn'],
+    backup_created: ['Creó un respaldo', 'ok'],
+    data_export: ['Descargó sus datos', ''],
+    account_deleted: ['Borró su cuenta', 'warn'],
     role_granted: ['Recibió el rol de administrador', 'warn'],
     role_removed: ['Perdió el rol de administrador', 'warn'],
 };
 const GRUPOS = [['', 'Todo'], ['failed', 'Intentos fallidos'], ['login', 'Entradas'], ['sessions', 'Sesiones'],
-    ['2fa', 'Dos pasos'], ['files', 'Archivos'], ['admin', 'Panel']];
+    ['2fa', 'Dos pasos'], ['files', 'Archivos'], ['privacy', 'Privacidad'], ['admin', 'Panel']];
 
 function detalleEvento(e) {
     const d = e.details || {};
@@ -323,7 +364,7 @@ export async function securityView(root, _params, signal) {
     let eventos = [];
     let siguiente = null;
 
-    const TABS = [['files', 'Archivos', 'shield'], ['students', 'Estudiantes', 'users'], ['hashes', 'Huellas vetadas', 'lock'],
+    const TABS = [['files', 'Archivos', 'shield'], ['reports', 'Reportes', 'flag'], ['students', 'Estudiantes', 'users'], ['hashes', 'Huellas vetadas', 'lock'],
         ['policy', 'Política e IA', 'filter'], ['audit', 'Bitácora', 'history']];
 
     setHtml(root, html`<div class="page page--wide">
@@ -341,6 +382,10 @@ export async function securityView(root, _params, signal) {
             </div>
             <div class="bulk-bar" data-slot="bulk" hidden></div>
             <section class="panel table-wrap" data-slot="table">${loading()}</section>
+        </div>
+        <div data-pane="reports" hidden>
+            <p class="field__hint" style="margin-bottom:12px" data-slot="reports-hint">Los estudiantes pueden reportar documentos de la biblioteca o de sus grupos.</p>
+            <div data-slot="reports">${loading()}</div>
         </div>
         <div data-pane="students" hidden><section class="panel table-wrap" data-slot="students">${loading()}</section></div>
         <div data-pane="hashes" hidden><section class="panel table-wrap" data-slot="hashes">${loading()}</section></div>
@@ -460,6 +505,20 @@ export async function securityView(root, _params, signal) {
         }
     }
 
+    async function reportes() {
+        const slot = $('[data-slot="reports"]', root);
+        try {
+            const r = await api.get('/api/admin/reports');
+            contar('reports', r.open);
+            setHtml($('[data-slot="reports-hint"]', root), html`Los estudiantes pueden reportar documentos de la biblioteca o de sus grupos.
+                Con ${r.hide_threshold} reportes de personas distintas el documento se oculta solo hasta que decidas (REPORT_HIDE_THRESHOLD).`);
+            setHtml(slot, r.documents.length ? html`<div class="report-list">${r.documents.map(tarjetaReporte)}</div>`
+                : html`<section class="panel">${empty({ icon: 'flag', title: 'Sin reportes pendientes', text: 'Cuando un estudiante reporte un documento aparecerá aquí.' })}</section>`);
+        } catch (err) {
+            setHtml(slot, empty({ icon: 'alert', title: 'No se pudo cargar', text: err.message }));
+        }
+    }
+
     async function huellas() {
         const slot = $('[data-slot="hashes"]', root);
         try {
@@ -500,6 +559,7 @@ export async function securityView(root, _params, signal) {
         root.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== k; });
         if (k === 'audit') bitacora();
         if (k === 'students') estudiantes();
+        if (k === 'reports') reportes();
         if (k === 'hashes') huellas();
         if (k === 'policy') setHtml($('[data-slot="policy"]', root), inicial ? politica(inicial) : loading());
     }
@@ -519,6 +579,7 @@ export async function securityView(root, _params, signal) {
         tabla();
         if (pestana === 'students') estudiantes();
         if (pestana === 'hashes') huellas();
+        if (pestana === 'reports') reportes();
     }
 
     /* Eventos */
@@ -655,6 +716,31 @@ export async function securityView(root, _params, signal) {
         drawer.addEventListener('transitionend', () => { if (!drawer.isConnected && urlImagen) URL.revokeObjectURL(urlImagen); });
     }, signal);
 
+    on(root, 'click', '[data-report-action]', async (_e, b) => {
+        const card = b.closest('[data-report-kind]');
+        const accion = b.dataset.reportAction;
+        if (accion === 'remove' && !await confirmDialog({ title: 'Eliminar documento',
+            text: 'Se borrará el archivo, su huella quedará vetada y cuenta como un rechazo para quien lo subió.', confirmLabel: 'Eliminar' })) return;
+        b.disabled = true;
+        try {
+            const r = await api.post('/api/admin/reports/resolve', { kind: card.dataset.reportKind, resource_id: Number(card.dataset.reportId),
+                action: accion, note: card.querySelector('[data-report-note]')?.value.trim() || '' });
+            toast(r.message);
+            refrescarTodo();
+            reportes();
+        } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+    }, signal);
+    on(root, 'click', '[data-action="backup"]', async (_e, b) => {
+        b.disabled = true;
+        try {
+            const r = await api.post('/api/admin/backups');
+            toast(r.message);
+            inicial = { ...inicial, backups: r.backups };
+            setHtml($('[data-slot="policy"]', root), politica(inicial));
+        } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+    }, signal);
+
     await resumen(inicial);
     tabla();
+    api.get('/api/admin/reports').then((r) => contar('reports', r.open)).catch(() => {});
 }

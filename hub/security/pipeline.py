@@ -447,3 +447,32 @@ def scan_legacy_backlog(limit: int = 500) -> int:
                 title=p.title, legacy=True)
         total += 1
     return total
+
+
+# --- Documentos ya publicados que vuelven a revisión (reportes) ------------------
+def quarantine_published(kind: str, objetivo, summary: str) -> FileScan:
+    """Pone en cuarentena un documento ya publicado (p. ej. por reportes de estudiantes).
+
+    Crea un FileScan «review» sin decisión, así aparece en la cuarentena del panel
+    y el admin lo aprueba o rechaza con el mismo flujo que una subida nueva.
+    """
+    abierto = FileScan.query.filter(FileScan.kind == kind, FileScan.resource_id == objetivo.id,
+                                    FileScan.status.in_((SCAN_REVIEW, SCAN_BLOCKED)),
+                                    FileScan.reviewed_by.is_(None)).order_by(FileScan.id.desc()).first()
+    if abierto:
+        abierto.summary = summary[:500]
+        db.session.commit()
+        return abierto
+    dueno = objetivo.owner_id if kind == 'public' else objetivo.user_id
+    grupo = objetivo.group_id if kind == 'group' else None
+    ruta = path_for(kind, objetivo.filename, grupo)
+    huella = static.sha256_of(ruta) if os.path.exists(ruta) else None
+    scan = FileScan(kind=kind, resource_id=objetivo.id, group_id=grupo, user_id=dueno,
+                    original_name=display_filename(objetivo.filename)[:300], stored_name=objetivo.filename,
+                    sha256=huella, size=getattr(objetivo, 'file_size', None), status=SCAN_REVIEW,
+                    summary=summary[:500], finished_at=utcnow())
+    db.session.add(scan)
+    objetivo.scan_status = SCAN_REVIEW
+    db.session.commit()
+    specs.unindex(kind, objetivo.id)
+    return scan

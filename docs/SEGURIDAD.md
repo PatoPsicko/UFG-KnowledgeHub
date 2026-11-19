@@ -220,3 +220,15 @@ python -m pytest tests/test_security.py tests/test_auth.py tests/test_storage.py
 Para la demostración en clase se puede subir el archivo de prueba EICAR
 (https://www.eicar.org): es inofensivo, pero todos los antivirus lo detectan.
 Ojo: Defender puede borrarlo de tu carpeta de descargas antes de subirlo.
+
+## Administración y moderación (Fase 3C)
+
+El panel **Seguridad** tiene ahora pestañas de Archivos (registro con búsqueda, lotes, CSV y vista previa
+del texto), Reportes de estudiantes, Estudiantes (rechazos y suspensión de subidas), Huellas vetadas,
+Política e IA (límites, respaldos, cuota) y Bitácora. Detalle completo en [`FASE_3.md`](FASE_3.md).
+
+- Tras **3 rechazos en 30 días** las subidas del estudiante se suspenden 7 días (`UPLOAD_STRIKES`,
+  `UPLOAD_STRIKE_DAYS`, `UPLOAD_BLOCK_DAYS`).
+- Con **3 reportes** de personas distintas un documento publicado se oculta y vuelve a la cuarentena
+  (`REPORT_HIDE_THRESHOLD`).
+- Respaldos diarios en `instance/backups` (`python manage.py backup` / `restore`).

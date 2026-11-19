@@ -11,6 +11,7 @@ import { api } from '../core/api.js';
 import { $, html, on, setHtml } from '../core/dom.js';
 import { errorBox } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
+import { privacyNotice } from '../ui/moderation.js';
 
 // Lomos de la estantería del panel izquierdo: [ancho, alto %, color, inclinado]
 const SHELF = [
@@ -99,12 +100,14 @@ export function renderAuth(root, { onLogin }) {
                     <span>${icon('robot')}Francis cita de qué documento sale cada dato</span>
                 </div>
             </div>
-            <div style="font-size:13px;color:#7F95B1">Proyecto académico de la Universidad Francisco Gavidia</div>
+            <div style="font-size:13px;color:#7F95B1">Proyecto académico de la Universidad Francisco Gavidia. <button type="button" class="auth__legal" data-action="privacy">Aviso de privacidad</button></div>
         </section>
         <main class="auth__main" id="auth-main">${loginForm()}</main>
     </div>`);
 
     const main = $('#auth-main', root);
+
+    root.querySelector('[data-action="privacy"]')?.addEventListener('click', () => privacyNotice(), { signal });
     let reto = null;  // reto firmado entre la contraseña y el código
     api.get('/api/auth/policy').then((p) => Object.assign(politica, p)).catch(() => {});
 

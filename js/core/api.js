@@ -128,7 +128,7 @@ export const api = {
     get: (path) => request(path),
     post: (path, body) => request(path, { method: 'POST', body: body ?? {} }),
     put: (path, body) => request(path, { method: 'PUT', body: body ?? {} }),
-    del: (path) => request(path, { method: 'DELETE' }),
+    del: (path, body) => request(path, { method: 'DELETE', body }),
     upload: (path, formData, method = 'POST') => request(path, { method, form: formData }),
 
     /** Descarga un archivo protegido (las <a href> no pueden enviar el token). */

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 
 from .config import ROOT_DIR, build_config
@@ -38,6 +38,10 @@ def _security_headers(app: Flask) -> None:
         resp.headers.setdefault('Referrer-Policy', 'same-origin')
         resp.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
         resp.headers.setdefault('Content-Security-Policy', csp)
+        # HSTS sólo cuando se entra por HTTPS (Tailscale Funnel, Cloudflare o el
+        # servidor de la UFG): el navegador ya no aceptará la versión sin cifrar.
+        if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+            resp.headers.setdefault('Strict-Transport-Security', 'max-age=31536000')
         return resp
 
 
@@ -59,10 +63,10 @@ def create_app(overrides: dict | None = None) -> Flask:
     register_error_handlers(app)
     _security_headers(app)
 
-    from .api import (account, admin, assistant, auth, chat, files, frontend, groups, library, notes, profile,
-                      realtime, social)
+    from .api import (account, admin, assistant, auth, chat, files, frontend, groups, library, notes, privacy,
+                      profile, realtime, reports, social)
     for modulo in (auth, account, library, social, chat, groups, notes, profile, realtime, assistant, admin, files,
-                   frontend):
+                   reports, privacy, frontend):
         app.register_blueprint(modulo.bp)
 
     from . import storage
@@ -119,6 +123,9 @@ def start_background(app: Flask) -> None:
                 app.logger.warning('Vigilancia de embeddings: %s', exc)
 
     threading.Thread(target=vigilar_embeddings, name='vigilar-embeddings', daemon=True).start()
+
+    from . import backup
+    backup.start_scheduler(app)
 
     # Limpieza de archivos huérfanos y subidas a medias, sesiones viejas y
     # bitácora más antigua que AUDIT_RETENTION_DAYS: al arrancar y cada 6 h.

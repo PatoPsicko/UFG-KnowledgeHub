@@ -28,6 +28,7 @@ const NOTIF_ICON = {
     group_deleted: ['users', 'warn'], group_removed: ['users', 'warn'],
     scan_result: ['shield', ''], security_alert: ['shield', 'bad'],
     uploads_suspended: ['lock', 'bad'], uploads_restored: ['check', 'ok'],
+    document_report: ['flag', 'warn'], report_result: ['flag', 'ok'],
 };
 
 function notifTarget(n) {
@@ -43,7 +44,8 @@ function notifTarget(n) {
     case 'scan_result':
     case 'uploads_suspended':
     case 'uploads_restored': return '/biblioteca?scope=mine';
-    case 'security_alert': return '/seguridad';
+    case 'security_alert':
+    case 'document_report': return '/seguridad';
     default: return null;
     }
 }

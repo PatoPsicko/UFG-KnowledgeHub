@@ -166,6 +166,34 @@ def cmd_scan(args) -> None:
         print(json.dumps(ai_review.review(ruta, nombre), ensure_ascii=False, indent=2))
 
 
+def cmd_backup(_args) -> None:
+    from hub import backup
+    app = _app()
+    with app.app_context():
+        info = backup.create_backup()
+        print(f"Respaldo creado en {backup.backup_dir()}\\{info['name']} ({info['files']} archivos, "
+              f"{info['bytes'] / 1048576:.1f} MB). Tablas: {info['tables']}")
+
+
+def cmd_restore(args) -> None:
+    from hub import backup
+    app = _app()
+    ruta = os.path.abspath(args.zip)
+    if not os.path.isfile(ruta):
+        sys.exit(f'No existe {ruta}')
+    db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '', 1)
+    print(f'Se reemplazarán la base de datos ({db_path}) y la carpeta de archivos ({app.config["UPLOAD_FOLDER"]}).')
+    print('Apaga el servidor antes de seguir. Lo actual se guarda con el sufijo .antes_de_restaurar.')
+    if input('Escribe RESTAURAR para confirmar: ').strip() != 'RESTAURAR':
+        print('Cancelado.')
+        return
+    from hub.extensions import db
+    with app.app_context():
+        db.engine.dispose()
+    info = backup.restore_backup(ruta, db_path, app.config['UPLOAD_FOLDER'])
+    print(f"Restaurado: {info.get('files', 0)} archivos. Respaldo del {info.get('created_at', '?')}.")
+
+
 def cmd_storage(args) -> None:
     from hub import storage
     app = _app()
@@ -211,6 +239,10 @@ def main() -> None:
     p.add_argument('--query')
     p.add_argument('--user', type=int)
     p.set_defaults(func=cmd_index)
+    sub.add_parser('backup', help='Crea un respaldo (base de datos + archivos)').set_defaults(func=cmd_backup)
+    p = sub.add_parser('restore', help='Restaura un respaldo (con el servidor apagado)')
+    p.add_argument('zip')
+    p.set_defaults(func=cmd_restore)
     p = sub.add_parser('storage', help='Espacio de los archivos y limpieza de huérfanos')
     p.add_argument('--limpiar', action='store_true')
     p.add_argument('--simular', action='store_true', help='Con --limpiar: sólo muestra qué se borraría')

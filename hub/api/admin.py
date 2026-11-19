@@ -29,7 +29,7 @@ from datetime import timedelta
 from flask import Blueprint, Response, current_app, jsonify, request, send_file
 from sqlalchemy import func, or_
 
-from .. import audit, storage
+from .. import audit, backup, storage
 from ..ai import index, llm
 from ..ai.extract import texto_plano
 from ..errors import ApiError
@@ -91,6 +91,7 @@ def overview():
         'ai': llm.router().status(),
         'index': index.indice().estadisticas(),
         'policy': _policy(),
+        'backups': backup.list_backups()[:5],
     }), 200
 
 
@@ -368,6 +369,15 @@ def set_uploads(user_id: int):
         mensaje = f'Subidas de {usuario.name} suspendidas {dias} días.'
     db.session.commit()
     return jsonify({'message': mensaje, 'blocked_until': iso_utc(usuario.uploads_blocked_until)}), 200
+
+
+@bp.post('/backups')
+@admin_required
+def run_backup():
+    info = backup.create_backup()
+    audit.record('backup_created', user=current_user(), file=info['name'], files=info['files'])
+    db.session.commit()
+    return jsonify({'message': f"Respaldo creado: {info['name']}", 'backup': info, 'backups': backup.list_backups()[:5]}), 201
 
 
 @bp.get('/audit')

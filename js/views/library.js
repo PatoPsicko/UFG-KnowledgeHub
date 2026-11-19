@@ -9,6 +9,7 @@ import { careerFields, categoryFields, fillCareer, fillCategory } from '../ui/pi
 import { avatar, empty, scanBadge, skeletonRows } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { closeDrawer, confirmDialog, openDialog, openDrawer, toast } from '../ui/overlay.js';
+import { reportDialog } from '../ui/moderation.js';
 import { askAboutDocument } from './assistant.js';
 
 /* --- Fila de documento (también la usa Inicio) --------------------------------- */
@@ -92,6 +93,7 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
                 ${r.is_owner || store.user.is_admin ? html`
                     <button class="icon-btn" data-act="edit" title="Editar" aria-label="Editar">${icon('edit')}</button>
                     <button class="icon-btn" data-act="delete" title="Eliminar" aria-label="Eliminar">${icon('trash')}</button>` : ''}
+                ${!r.is_owner && r.scan_status === 'clean' ? html`<button class="icon-btn" data-act="report" title="Reportar documento" aria-label="Reportar documento">${icon('flag')}</button>` : ''}
             </div>
             ${r.scan_status !== 'clean' ? html`<div style="margin-top:14px">${scanBadge(r.scan_status)}
                 <span style="font-size:13.5px;color:var(--ink-2);margin-left:6px">${r.scan_status === 'pending' ? 'Sólo tú lo ves hasta que termine la revisión de seguridad.'
@@ -159,6 +161,7 @@ export async function openResource(id, { onChanged = () => {} } = {}) {
                 onChanged();
             }
             if (b.dataset.act === 'edit') { closeDrawer(); limpiar(); uploadDialog(r, onChanged); }
+            if (b.dataset.act === 'report') reportDialog({ kind: 'public', resourceId: r.id, title: r.title, onDone: (res) => { if (res.hidden) { closeDrawer(); limpiar(); onChanged(); } } });
             if (b.dataset.act === 'delete') {
                 if (!await confirmDialog({ title: 'Eliminar documento', text: `«${r.title}» se borrará de la biblioteca para todos.`, confirmLabel: 'Eliminar' })) return;
                 await api.del(`/api/resources/${r.id}`);

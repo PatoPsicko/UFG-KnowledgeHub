@@ -52,6 +52,8 @@ arrancar: no hace falta ningún editor de bases de datos.
 | `python manage.py scan archivo.pdf` | Pasa un archivo por las 3 barreras del vigilante. |
 | `python manage.py index --stats` | Estado del índice de búsqueda del asistente. |
 | `python manage.py storage` | Archivos y espacio por carpeta (`--limpiar` borra huérfanos). |
+| `python manage.py backup` | Respaldo de la base de datos y los archivos (también se hace solo cada día). |
+| `python manage.py restore <zip>` | Restaura un respaldo (con el servidor apagado). |
 | `python manage.py db --reset` | Borra la base y la deja vacía (pide confirmación). |
 | `python seed_test_data.py` | Con el servidor encendido: 8 usuarios, 100 documentos, grupos y mensajes. |
 | `python -m pytest` | Pruebas automáticas del backend (sin red). |

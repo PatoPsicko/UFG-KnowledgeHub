@@ -12,6 +12,7 @@ Acciones que se registran:
     2fa_enabled, 2fa_disabled, 2fa_step_up, 2fa_recovery_used, 2fa_recovery_regenerated, 2fa_reset
     scan_approved, scan_rejected, scan_rescan, scan_export, hash_unblocked, role_granted, role_removed
     uploads_suspended, uploads_restored, uploads_auto_suspended
+    report_dismiss, report_hide, report_remove, data_export, account_deleted, backup_created
 """
 
 from __future__ import annotations
@@ -32,8 +33,10 @@ GROUPS = {
     '2fa': ('2fa_enabled', '2fa_disabled', '2fa_step_up', '2fa_recovery_used', '2fa_recovery_regenerated',
             '2fa_reset', 'login_2fa_failed'),
     'admin': ('scan_approved', 'scan_rejected', 'scan_rescan', 'scan_export', 'hash_unblocked', 'role_granted',
-              'role_removed', '2fa_reset', 'uploads_suspended', 'uploads_restored', 'uploads_auto_suspended'),
-    'files': ('scan_approved', 'scan_rejected', 'scan_rescan', 'scan_export', 'hash_unblocked',
+              'role_removed', '2fa_reset', 'uploads_suspended', 'uploads_restored', 'uploads_auto_suspended',
+              'report_dismiss', 'report_hide', 'report_remove', 'backup_created'),
+    'privacy': ('data_export', 'account_deleted'),
+    'files': ('report_dismiss', 'report_hide', 'report_remove', 'scan_approved', 'scan_rejected', 'scan_rescan', 'scan_export', 'hash_unblocked',
               'uploads_suspended', 'uploads_restored', 'uploads_auto_suspended'),
 }
 

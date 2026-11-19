@@ -6,7 +6,8 @@ import { prefs } from '../core/prefs.js';
 import { store } from '../core/store.js';
 import { avatar, errorBox, loading, meter, segmented } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
-import { confirmDialog, toast } from '../ui/overlay.js';
+import { confirmDialog, openDialog, toast } from '../ui/overlay.js';
+import { privacyNotice } from '../ui/moderation.js';
 import { careerFields, fillCareer } from '../ui/pickers.js';
 import { openDisableTwoFactor, openNewRecoveryCodes, openTwoFactorSetup } from '../ui/twofactor.js';
 
@@ -128,6 +129,15 @@ export async function profileView(root, _params, signal) {
                         <div class="panel__head"><h2>Acceso y sesiones</h2></div>
                         <div class="panel__body" data-slot="access">${loading()}</div>
                     </section>
+                    <section class="panel" id="privacidad">
+                        <div class="panel__head"><h2>Privacidad</h2><button class="btn btn--ghost btn--sm" data-action="privacy-notice">Aviso de privacidad</button></div>
+                        <div class="panel__body privacy-actions">
+                            <div><strong>Descargar mis datos</strong><p class="muted">Un ZIP con tu perfil, documentos, notas, grupos, conversaciones con Francis y los archivos que subiste.</p>
+                                <button class="btn btn--secondary btn--sm" data-action="export-data">${icon('download')}Descargar ZIP</button></div>
+                            <div><strong>Borrar mi cuenta</strong><p class="muted">Se eliminan tu perfil y todo lo que subiste. Los grupos que lideras pasan al miembro más antiguo. No se puede deshacer.</p>
+                                <button class="btn btn--danger btn--sm" data-action="delete-account">${icon('trash')}Borrar mi cuenta</button></div>
+                        </div>
+                    </section>
                 </div>
             </div>
         </div>`);
@@ -147,6 +157,35 @@ export async function profileView(root, _params, signal) {
         }
     }
 
+    on(root, 'click', '[data-action="privacy-notice"]', () => privacyNotice(), signal);
+    on(root, 'click', '[data-action="export-data"]', async (_e, b) => {
+        b.disabled = true;
+        try {
+            const blob = await api.blob('/api/me/export');
+            const url = URL.createObjectURL(blob);
+            const a = Object.assign(document.createElement('a'), { href: url, download: 'mis_datos_ufg_hub.zip' });
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            toast('Tus datos se están descargando');
+        } catch (err) { toast(err.message, 'error'); } finally { b.disabled = false; }
+    }, signal);
+    on(root, 'click', '[data-action="delete-account"]', () => openDialog({
+        title: 'Borrar mi cuenta',
+        description: 'Se borran tu perfil, tus documentos, notas, mensajes de grupo y conversaciones. No se puede deshacer.',
+        submitLabel: 'Borrar para siempre',
+        danger: true,
+        body: html`<p class="muted" style="margin-bottom:12px">Si quieres conservar tus archivos, descarga antes tus datos.</p>
+            <label class="field"><span class="field__label">Contraseña</span><input class="input" name="password" type="password" autocomplete="current-password" required></label>
+            <label class="field"><span class="field__label">Escribe BORRAR para confirmar</span><input class="input" name="confirm" autocomplete="off" required></label>`,
+        onSubmit: async (form) => {
+            if (form.confirm.value.trim().toUpperCase() !== 'BORRAR') throw new Error('Escribe BORRAR para confirmar.');
+            await api.del('/api/me', { password: form.password.value, confirm: form.confirm.value });
+            toast('Tu cuenta se borró. Gracias por aportar a la comunidad UFG.', 'success', 6000);
+            setTimeout(() => { api.clearToken?.(); location.hash = ''; location.reload(); }, 1200);
+        },
+    }), signal);
     on(root, 'click', '[data-action="2fa-on"]', () => openTwoFactorSetup({ onDone: acceso }), signal);
     on(root, 'click', '[data-action="2fa-codes"]', () => openNewRecoveryCodes({ onDone: acceso }), signal);
     on(root, 'click', '[data-action="2fa-off"]', () => openDisableTwoFactor({ onDone: acceso }), signal);

@@ -468,3 +468,41 @@ class AuditEvent(db.Model):
             'device': self.device,
             'details': detalles,
         }
+
+
+REPORT_REASONS = {
+    'malicious': 'Archivo peligroso o sospechoso',
+    'inappropriate': 'Contenido inapropiado u ofensivo',
+    'personal_data': 'Expone datos personales',
+    'copyright': 'Derechos de autor (libro o material completo)',
+    'spam': 'Spam o publicidad',
+    'wrong': 'No es material de estudio o está mal clasificado',
+    'other': 'Otro motivo',
+}
+
+
+class DocumentReport(db.Model):
+    """Reporte de un estudiante sobre un documento de la biblioteca o de un grupo."""
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(20), nullable=False)  # public | group
+    resource_id = db.Column(db.Integer, nullable=False, index=True)
+    group_id = db.Column(db.Integer)
+    reporter_id = db.Column(db.Integer, db.ForeignKey('user.id'), index=True)
+    reason = db.Column(db.String(30), nullable=False)
+    comment = db.Column(db.String(500))
+    status = db.Column(db.String(20), default='open')  # open | dismissed | resolved
+    resolution = db.Column(db.String(300))
+    resolved_by = db.Column(db.Integer)
+    resolved_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    reporter = db.relationship('User', lazy='joined')
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id, 'kind': self.kind, 'resource_id': self.resource_id, 'group_id': self.group_id,
+            'reporter': self.reporter.public_dict() if self.reporter else None,
+            'reason': self.reason, 'reason_label': REPORT_REASONS.get(self.reason, self.reason),
+            'comment': self.comment, 'status': self.status, 'resolution': self.resolution,
+            'created_at': iso_utc(self.created_at), 'resolved_at': iso_utc(self.resolved_at),
+        }

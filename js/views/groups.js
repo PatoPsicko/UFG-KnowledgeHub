@@ -9,6 +9,7 @@ import { avatar, bindFilter, countBadge, empty, loading, scanBadge, searchToggle
 import { mountChat } from '../ui/chatlog.js';
 import { icon } from '../ui/icons.js';
 import { confirmDialog, openDialog, openMenu, toast } from '../ui/overlay.js';
+import { reportDialog } from '../ui/moderation.js';
 import { askAboutDocument } from './assistant.js';
 import { openUserProfile } from './people.js';
 
@@ -239,6 +240,7 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
                         <button class="icon-btn icon-btn--sm" data-res-act="ask" aria-label="Preguntar a Francis" title="Preguntar a Francis">${icon('robot')}</button>
                         <button class="icon-btn icon-btn--sm" data-res-act="download" aria-label="Descargar" title="Descargar">${icon('download')}</button>
                         ${r.can_delete ? html`<button class="icon-btn icon-btn--sm" data-res-act="delete" aria-label="Eliminar" title="Eliminar">${icon('trash')}</button>` : ''}
+                        ${r.uploaded_by_id !== store.user.id ? html`<button class="icon-btn icon-btn--sm" data-res-act="report" aria-label="Reportar" title="Reportar">${icon('flag')}</button>` : ''}
                     </div>
                 </article>`) : empty({ icon: 'folder', title: 'Sin archivos todavía', text: 'Sube avances, guías o entregas para que todo el grupo los tenga.' })}</section>`);
     }
@@ -339,6 +341,7 @@ async function groupDetail(root, gid, signal, tabInicial = 'chat') {
         try {
             if (b.dataset.resAct === 'download') await api.download(r.download_url, r.original_filename);
             if (b.dataset.resAct === 'ask') askAboutDocument(r.doc_key, r.title);
+            if (b.dataset.resAct === 'report') reportDialog({ kind: 'group', resourceId: r.id, title: r.title, onDone: () => recargar() });
             if (b.dataset.resAct === 'delete') {
                 if (!await confirmDialog({ title: 'Eliminar archivo', text: `«${r.title}» se borrará para todo el grupo.`, confirmLabel: 'Eliminar' })) return;
                 await api.del(`/api/groups/${gid}/resources/${r.id}`);
