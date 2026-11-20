@@ -96,6 +96,12 @@ descargar, buscar, grupos y asistente) dieron **0 errores** y menos de 40 ms
 (p95) en todo lo que no es IA. Detalle y guion en
 [`docs/DEMO_20_USUARIOS.md`](docs/DEMO_20_USUARIOS.md).
 
+## App para Android
+
+En `mobile/` está la app nativa (Flutter) con inicio de sesión y dos pasos, Inicio,
+Biblioteca, Francis con respuesta en vivo y Mi espacio. Usa la misma API que la web.
+Cómo compilarla y conectarla al servidor: [`docs/FASE_4_APP.md`](docs/FASE_4_APP.md).
+
 ## Estructura
 
 ```
@@ -122,6 +128,7 @@ js/core/                API, plantillas seguras, enrutador, estado, sondeo, pref
 js/ui/                  iconos, componentes, diálogos, conversación
 js/views/               una vista por sección
 img/icons/              íconos de la app (scripts/generar_iconos.py)
+mobile/                 app nativa para Android hecha con Flutter
 tests/                  pruebas con pytest (sin red: IA y antivirus simulados)
 scripts/                prueba de carga, túnel de Cloudflare e íconos
 iniciar.bat / .ps1      arranque con un doble clic (servidor + link público)

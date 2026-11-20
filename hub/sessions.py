@@ -126,7 +126,7 @@ def current_id() -> int | None:
 
 # --- Renovación -----------------------------------------------------------------
 
-def rotate(token: str | None) -> tuple[UserSession, User, str | None]:
+def rotate(token: str | None, *, reissue: bool = False) -> tuple[UserSession, User, str | None]:
     """Valida el token de renovación y lo cambia por uno nuevo.
 
     Devuelve (sesión, usuario, token nuevo). El token nuevo es None cuando otra
@@ -166,11 +166,28 @@ def rotate(token: str | None) -> tuple[UserSession, User, str | None]:
                              device=sesion.device)
                 db.session.commit()
             raise ApiError('Por seguridad cerramos esta sesión. Inicia sesión de nuevo.', 401, 'session_closed')
+        if reissue:
+            # La app no guarda cookies: si repite la renovación (p. ej. se perdió la
+            # respuesta), recibe otro token y el anterior que nunca le llegó deja de valer.
+            nuevo = secrets.token_urlsafe(32)
+            sesion.token_hash, sesion.previous_hash, sesion.rotated_at = _hash(nuevo), huella, utcnow()
+            db.session.commit()
     _touch(sesion)
     user = db.session.get(User, sesion.user_id)
     if user is None:
         raise ApiError('Tu cuenta ya no existe.', 401, 'user_not_found')
     return sesion, user, nuevo
+
+
+def is_mobile_client() -> bool:
+    """La app de Flutter se identifica con la cabecera X-Client: mobile."""
+    return request.headers.get('X-Client', '').lower() == 'mobile'
+
+
+def mobile_refresh_token() -> str | None:
+    datos = request.get_json(silent=True)
+    token = datos.get('refresh_token') if isinstance(datos, dict) else None
+    return token if isinstance(token, str) and 20 <= len(token) <= 200 else None
 
 
 def find_by_refresh(token: str | None) -> UserSession | None:

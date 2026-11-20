@@ -295,3 +295,23 @@ def test_audit_log(app, client):
 
     resumen = ac.get('/api/admin/overview', headers=auth(ad['token'])).get_json()
     assert resumen['failed_logins_24h'] == 2 and resumen['active_sessions'] >= 1
+
+
+def test_mobile_client_gets_refresh_token_in_body(client, make_user):
+    make_user('Movil', 'movil@ufg.edu.sv')
+    from conftest import PASSWORD
+    h = {'X-Client': 'mobile'}
+    r = client.post('/api/login', json={'email': 'movil@ufg.edu.sv', 'password': PASSWORD}, headers=h)
+    assert r.status_code == 200
+    datos = r.get_json()
+    assert datos['refresh_token'] and 'hub_refresh' not in r.headers.get('Set-Cookie', '')
+    r2 = client.post('/api/auth/refresh', json={'refresh_token': datos['refresh_token']}, headers=h)
+    assert r2.status_code == 200 and r2.get_json()['refresh_token'] != datos['refresh_token']
+    # Reintento con el mismo token dentro del periodo de gracia: recibe otro válido.
+    r3 = client.post('/api/auth/refresh', json={'refresh_token': datos['refresh_token']}, headers=h)
+    nuevo = r3.get_json()['refresh_token']
+    assert r3.status_code == 200 and nuevo
+    r4 = client.post('/api/auth/refresh', json={'refresh_token': nuevo}, headers=h)
+    assert r4.status_code == 200
+    assert client.post('/api/auth/logout', json={'refresh_token': r4.get_json()['refresh_token']}, headers=h).status_code == 200
+    assert client.post('/api/auth/refresh', json={'refresh_token': r4.get_json()['refresh_token']}, headers=h).status_code == 401

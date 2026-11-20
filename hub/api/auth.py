@@ -193,8 +193,13 @@ def _start_session(user: User, *, two_factor: bool = False):
     sesion, renovacion = sessions.open_session(user, two_factor=two_factor)
     audit.record('login_ok', user=user, target=f'session:{sesion.id}', two_factor=two_factor)
     db.session.commit()
-    respuesta = jsonify({'message': 'Sesión iniciada', 'token': sessions.access_token(user, sesion),
-                         'user': user.private_dict()})
+    datos = {'message': 'Sesión iniciada', 'token': sessions.access_token(user, sesion), 'user': user.private_dict()}
+    if sessions.is_mobile_client():
+        # La app nativa no tiene cookies del navegador: guarda el token de
+        # renovación en el almacenamiento seguro del teléfono (Keystore).
+        datos['refresh_token'] = renovacion
+        return jsonify(datos), 200
+    respuesta = jsonify(datos)
     sessions.set_cookie(respuesta, renovacion)
     return respuesta, 200
 
@@ -327,14 +332,24 @@ def login_two_factor():
 
 @bp.post('/auth/refresh')
 def refresh():
-    """Token de acceso nuevo a partir de la cookie de renovación (y cookie nueva)."""
+    """Token de acceso nuevo a partir de la cookie de renovación (y cookie nueva).
+
+    La app nativa (cabecera X-Client: mobile) manda el token en el cuerpo
+    {"refresh_token": ...} y recibe el nuevo en la respuesta."""
+    movil = sessions.is_mobile_client()
+    token = sessions.mobile_refresh_token() if movil else request.cookies.get(sessions.REFRESH_COOKIE)
     try:
-        sesion, user, nuevo = sessions.rotate(request.cookies.get(sessions.REFRESH_COOKIE))
+        sesion, user, nuevo = sessions.rotate(token, reissue=movil)
     except ApiError as err:
         respuesta = jsonify({'message': err.message, 'code': err.code})
-        sessions.clear_cookie(respuesta)
+        if not movil:
+            sessions.clear_cookie(respuesta)
         return respuesta, 401
-    respuesta = jsonify({'token': sessions.access_token(user, sesion), 'user': user.private_dict()})
+    datos = {'token': sessions.access_token(user, sesion), 'user': user.private_dict()}
+    if movil:
+        datos['refresh_token'] = nuevo
+        return jsonify(datos), 200
+    respuesta = jsonify(datos)
     if nuevo:
         sessions.set_cookie(respuesta, nuevo)
     return respuesta, 200
@@ -356,7 +371,8 @@ def _session_from_header() -> UserSession | None:
 @bp.post('/auth/logout')
 def logout():
     """Cierra la sesión de este dispositivo. Funciona aunque el token de acceso haya caducado."""
-    sesion = sessions.find_by_refresh(request.cookies.get(sessions.REFRESH_COOKIE)) or _session_from_header()
+    token = sessions.mobile_refresh_token() if sessions.is_mobile_client() else request.cookies.get(sessions.REFRESH_COOKIE)
+    sesion = sessions.find_by_refresh(token) or _session_from_header()
     if sesion is not None and sesion.revoked_at is None:
         sessions.revoke(sesion, 'logout')
         audit.record('logout', user=db.session.get(User, sesion.user_id), target=f'session:{sesion.id}')
